@@ -1,0 +1,154 @@
+---
+site: "Meteorological & Oceanographic Satellite Data Archival Centre"
+url: "https://mosdac.gov.in/"
+generated_at: "2026-10-31T16:49:19.179Z"
+generator: "designlang@0.0.0"
+intent: landing
+material: flat
+tokens:
+  colors:
+    primary: "#0071b3"
+    secondary: "#f5842f"
+    accent: "#095cb1"
+    background: "#ffffff"
+    foreground: "#ffffff"
+  typography:
+    sans: Helvetica Neue
+    base: 16
+  spacing:
+    base: 2
+    scale: "[1, 14, 20, 27, 36, 54]"
+  radii:
+    xs: 1
+    sm: 5
+    full: 50
+  shadows:
+    xs: "rgb(9, 92, 174) 0px -2px 0px 0px inset"
+    sm: "rgb(211, 211, 211) 2px 2px 2px 0px"
+    md: "rgba(0, 0, 0, 0.5) 2px 2px 10px 0px"
+---
+
+# Overview
+
+A **landing** page (heuristic confidence 0.29), dressed in **flat** material.
+
+> "User-Login-Menu"
+
+The author writes in a **friendly** voice; headings tend to be **Sentence case** case and **tight**.
+
+Reading order detected on the source: `logo-wall → nav → nav → content → footer → nav`.
+
+Source: <https://mosdac.gov.in/>.
+
+# Colors
+
+| role | hex | usage |
+|---|---|---|
+| primary | `#0071b3` | 104 |
+| secondary | `#f5842f` | 8 |
+| accent | `#095cb1` | 33 |
+| background | `#ffffff` | — |
+| foreground | `#ffffff` | — |
+
+**Neutrals:** `#000000` · `#ffffff` · `#0b0d0f` · `#2b353b` · `#8196a2`
+
+**Tonal ramps** (OKLCH, base step in bold)
+- primary: 50 `#c9fcff` · 100 `#b8f1ff` · 200 `#a1e1ff` · 300 `#7fc8ff` · 400 `#52a7ea` · 500 `#2b88cc` · **600 `#0071b3`** · 700 `#005b93` · 800 `#004a7c` · 900 `#003c67` · 950 `#00203e`
+- secondary: 50 `#ffe4b7` · 100 `#ffd6a5` · 200 `#ffc28b` · 300 `#ffa564` · **400 `#f5842f`** · 500 `#cb5e00` · 600 `#af4900` · 700 `#913600` · 800 `#7a2900` · 900 `#651e00` · 950 `#3d0c00`
+- accent: 50 `#ccf9ff` · 100 `#bceeff` · 200 `#a6ddff` · 300 `#85c3ff` · 400 `#5ca2f9` · 500 `#3a82db` · 600 `#266cbe` · **700 `#095cb1`** · 800 `#094586` · 900 `#023770` · 950 `#001e44`
+- neutral: 50 `#eff7fb` · 100 `#e3ebf0` · 200 `#d1dbe0` · 300 `#b8c2c8` · 400 `#96a2a9` · 500 `#78848b` · 600 `#636e74` · 700 `#4f585e` · 800 `#40484d` · **900 `#2b353b`** · 950 `#1b2023`
+
+**Measured pairs**
+| role | bg | fg | contrast |
+|---|---|---|---|
+| surface.page | `#ffffff` | `#000000` | 21:1 AAA |
+| surface.raised | `#292929` | `#ffffff` | 14.55:1 AAA |
+| action.primary | `#0071b3` | `#ffffff` | 5.23:1 AA |
+| action.secondary | `#f5842f` | `#000000` | 8.22:1 AAA |
+| action.accent | `#095cb1` | `#ffffff` | 6.61:1 AA |
+
+**Dominance (share of painted area):** `#ffffff` 69% · `#292929` 21% · `#095cb1` 7% · `#3085a3` 2%
+
+**Total unique colors detected:** 16.
+
+# Typography
+
+**Families**
+- `Helvetica Neue` · 140 uses
+- `metropolis` · 13 uses
+- `Lora` · 10 uses
+
+**Body size:** `16px` / line-height `27px`.
+
+**Scale ratio:** irregular — sizes do not follow a modular ratio.
+**Measure:** ~21 characters per line (narrow).
+**Fluid type:** none — fixed sizes per breakpoint.
+
+**Named scale**
+| role | size | weight | line-height |
+|---|---|---|---|
+| h2 | `36px` | `700` | `54px` |
+| title-1 | `32px` | `700` | `36px` |
+| title-2 | `18px` | `700` | `18px` |
+| body | `16px` | `400` | `27px` |
+| body-sm | `14px` | `700` | `18px` |
+| micro | `13.5px` | `400` | `36px` |
+| sm-3 | `13.3333px` | `400` | `27px` |
+| sm-4 | `11.2px` | `400` | `18px` |
+
+# Layout
+
+**Spacing base:** `2px` increments.
+**Scale:** `1px` · `14px` · `20px` · `27px` · `36px` · `54px`
+
+**Content column:** `1208px`
+**Column system:** 3 columns.
+**Section rhythm:** `18px` vertical padding.
+**Gap scale:** `7px` · `9px` · `20px` · `36px` · `54px`
+
+**Layout primitives:** 14 grid containers · 12 flex containers.
+
+**Breakpoints:** `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px`
+
+# Elevation and Depth
+
+**Elevation ladder**
+- `xs` — `rgb(211, 211, 211) 2px 2px 2px 0px`
+- `sm` — `rgba(0, 0, 0, 0.5) 2px 2px 10px 0px`
+
+**Shadow system:** 2 levels from 3 raw values (redundancy 1.5×) · neutral tint.
+
+**Z-index layers:** 8
+
+# Shapes
+
+**Radius scale**
+- `xs` — `1px`
+- `sm` — `5px`
+- `full` — `50px`
+
+# Components
+
+**Detected patterns:** `buttons` · `inputs` · `links` · `navigation` · `footer` · `modals` · `dropdowns` · `badges` · `tabs` · `switches`
+
+**Anatomy**
+| kind | variants | sizes | instances |
+|---|---|---|---|
+| button | primary | — | 2 |
+
+# Do's and Don'ts
+
+**Do's**
+- Use `skip` as the primary verbs in CTAs — these dominate the source.
+- Write headings in **Sentence case** case, **tight** length.
+- Address the reader with the pronoun posture **third-person**.
+- Stay inside the **flat** material — match shadow and radius habits.
+
+**Don'ts**
+- Don't 151 !important rules — prefer specificity over overrides.
+- Don't 71% of css is unused — consider purging.
+- Don't 1815 duplicate css declarations.
+
+---
+_Generated by [designlang](https://github.com/Manavarya09/design-extract) v0.0.0 from <https://mosdac.gov.in/>._
+_Compatible with the DESIGN.md convention pioneered by [design-extractor.com](https://www.design-extractor.com) — extended with intent, material, voice, anatomy, and library detection._

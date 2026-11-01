@@ -1,0 +1,5 @@
+Strategy,Selection_Accuracy,Accuracy_Percent,Correct_Selections,Total_Scenarios
+RF-only,0.8185,81.85,8185,10000
+FSO-only,0.1815,18.15,1815,10000
+Rule-based,1.0,100.0,10000,10000
+Random Forest,0.9741,97.41,9741,10000

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <style>
+    :root {
+      --board: #1E3B2F;
+      --card: #F6EFDC;
+      color: var(--card);
+      background: var(--board);
+    }
+  </style>
+  <rect width="48" height="48" rx="8" fill="var(--board)"/>
+  <g fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 7v34M7 24h34M12 12l24 24M36 12 12 36" stroke-width="2"/>
+    <rect x="18" y="18" width="12" height="12" rx="2"/>
+    <path d="m18 21-7-5m7 11-7 5m19-11 7-5m-7 11 7 5" fill="none" stroke-width="2"/>
+  </g>
+</svg>

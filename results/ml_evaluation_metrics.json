@@ -1,0 +1,46 @@
+{
+  "dataset_rows": 10000,
+  "accuracy_full_dataset": 0.9961,
+  "confusion_matrix_labels": [
+    "RF",
+    "FSO"
+  ],
+  "confusion_matrix": [
+    [
+      8210,
+      6
+    ],
+    [
+      33,
+      1751
+    ]
+  ],
+  "classification_report": {
+    "RF": {
+      "precision": 0.9959966031784544,
+      "recall": 0.999269717624148,
+      "f1-score": 0.9976304757275655,
+      "support": 8216.0
+    },
+    "FSO": {
+      "precision": 0.9965850882185544,
+      "recall": 0.9815022421524664,
+      "f1-score": 0.9889861621011014,
+      "support": 1784.0
+    },
+    "accuracy": 0.9961,
+    "macro avg": {
+      "precision": 0.9962908456985045,
+      "recall": 0.9903859798883072,
+      "f1-score": 0.9933083189143335,
+      "support": 10000.0
+    },
+    "weighted avg": {
+      "precision": 0.9961015889096083,
+      "recall": 0.9961,
+      "f1-score": 0.9960883301766041,
+      "support": 10000.0
+    }
+  },
+  "note": "Evaluation on the full dataset is a diagnostic only, not an independent test-set performance estimate. Labels are generated from a synthetic rule."
+}

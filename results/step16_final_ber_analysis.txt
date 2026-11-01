@@ -1,0 +1,17 @@
+FINAL SATELLITE COMMUNICATION PROJECT — BER ANALYSIS
+Metric: Mean theoretical Bit Error Rate (BER)
+Strategy                  Mean BER       Reduction vs RF-only
+RF-only                   0.00852917     Baseline
+FSO-only                  0.13460847     -1478.21%
+Rule-based switching      0.00548393     35.70%
+Random Forest             0.00561874     34.12%
+KEY FINDINGS
+1. Rule-based switching achieved the lowest mean theoretical BER.
+2. Rule-based switching reduced mean theoretical BER by 35.70% compared with RF-only.
+3. Random Forest reduced mean theoretical BER by 34.12% compared with RF-only.
+4. FSO-only performed worse than RF-only under the simulated conditions.
+LIMITATIONS
+These are theoretical BER estimates derived from the simulated link SNR values.
+They do not establish real-world satellite-link performance.
+The reported Random Forest selection accuracy was evaluated on synthetic,
+rule-generated scenarios and should not be treated as independent test accuracy.
