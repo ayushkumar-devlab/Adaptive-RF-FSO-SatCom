@@ -1,6 +1,7 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import type { ErrorInfo, ReactNode } from "react";
+import { Component, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ErrorInfo, MutableRefObject, ReactNode } from "react";
 import { Panel } from "../components/Panel";
+import type { CameraView } from "../SatelliteScene";
 import type { ApiStatus, ChannelInputs } from "../types";
 import {
   createPassSamples,
@@ -15,9 +16,8 @@ import {
 } from "../sim/orbit";
 
 const SatelliteScene = lazy(() => import("../SatelliteScene"));
-const speedOptions = [0.25, 0.5, 1, 5, 30, 240] as const;
+const speedOptions = [1, 10, 20, 50, 100, 1000] as const;
 type Speed = typeof speedOptions[number];
-type CameraView = "auto" | "manual" | "overview" | "follow" | "ground";
 type SceneLinkTruth = {
   visible: boolean;
   elevationDeg: number;
@@ -25,6 +25,7 @@ type SceneLinkTruth = {
   satelliteId: number;
   inViewCount: number;
 };
+type LinkTruthHandlerRef = MutableRefObject<(truth: SceneLinkTruth) => void>;
 
 type SceneErrorBoundaryProps = { children: ReactNode };
 type SceneErrorBoundaryState = { hasError: boolean };
@@ -62,6 +63,130 @@ function formatSkippedTime(seconds: number) {
   return `${Math.max(1, Math.round(seconds))} sec`;
 }
 
+const LinkTruthDisplay = memo(function LinkTruthDisplay({
+  handlerRef,
+  initialTruth,
+  constellationMode,
+  selected,
+  onLinkVisibility,
+}: {
+  handlerRef: LinkTruthHandlerRef;
+  initialTruth: SceneLinkTruth;
+  constellationMode: boolean;
+  selected: string;
+  onLinkVisibility: (visible: boolean) => void;
+}) {
+  const [truth, setTruth] = useState(initialTruth);
+  const [handoverText, setHandoverText] = useState<string | null>(null);
+  const lastTruthRef = useRef(initialTruth);
+  const lastUpdateRef = useRef(0);
+
+  const updateTruth = useCallback((next: SceneLinkTruth) => {
+    const displayed = {
+      visible: next.visible,
+      elevationDeg: Math.round(next.elevationDeg),
+      slantRangeKm: Math.round(next.slantRangeKm),
+      satelliteId: next.satelliteId,
+      inViewCount: next.inViewCount,
+    };
+    const previous = lastTruthRef.current;
+    if (
+      displayed.visible === previous.visible &&
+      displayed.elevationDeg === Math.round(previous.elevationDeg) &&
+      displayed.slantRangeKm === Math.round(previous.slantRangeKm) &&
+      displayed.satelliteId === previous.satelliteId &&
+      displayed.inViewCount === previous.inViewCount
+    ) return;
+
+    const now = performance.now();
+    if (now - lastUpdateRef.current < 250) return;
+    lastUpdateRef.current = now;
+    lastTruthRef.current = next;
+    setTruth(next);
+    if (next.visible !== previous.visible) onLinkVisibility(next.visible);
+    if (constellationMode && next.satelliteId !== previous.satelliteId) {
+      setHandoverText(`Handover to satellite ${next.satelliteId}`);
+      window.setTimeout(() => setHandoverText(null), 2000);
+    }
+  }, [constellationMode, onLinkVisibility]);
+
+  useEffect(() => {
+    handlerRef.current = updateTruth;
+    return () => {
+      handlerRef.current = () => undefined;
+    };
+  }, [handlerRef, updateTruth]);
+
+  const statusText = truth.visible
+    ? constellationMode
+      ? `${handoverText ?? `Link up · satellite ${truth.satelliteId} · elevation ${Math.round(truth.elevationDeg)}° · ${truth.inViewCount} in view · ${selected} selected`}`
+      : `Link up · elevation ${Math.round(truth.elevationDeg)}° · ${selected} selected`
+    : "No link: below 10° elevation";
+
+  return <div className="compact-status" role="status" aria-live="polite">{statusText}</div>;
+});
+
+const PlaybackTimeline = memo(function PlaybackTimeline({
+  clockRef,
+  initialTime,
+  passes,
+  onSeek,
+  onScrubStart,
+  onScrubEnd,
+}: {
+  clockRef: SimClockRef;
+  initialTime: number;
+  passes: readonly PassWindow[];
+  onSeek: (time: number) => void;
+  onScrubStart: () => void;
+  onScrubEnd: () => void;
+}) {
+  const [time, setTime] = useState(initialTime);
+  const currentPassIndex = passes.findIndex((pass) => time >= pass.start && time <= pass.end);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const currentTime = clockRef.current.t;
+      setTime((previous) => previous === currentTime ? previous : currentTime);
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [clockRef]);
+
+  const seek = (nextTime: number) => {
+    onSeek(nextTime);
+    setTime(((nextTime % SIMULATION_DAY_S) + SIMULATION_DAY_S) % SIMULATION_DAY_S);
+  };
+
+  return (
+    <div className="pass-strip" aria-label="24 hour pass strip">
+      {passes.map((pass, index) => (
+        <PassMarker
+          key={pass.start}
+          pass={pass}
+          index={index}
+          current={index === currentPassIndex}
+          onSelect={() => seek(Math.max(0, pass.start - 15))}
+        />
+      ))}
+      <input
+        className="pass-playhead"
+        type="range"
+        min={0}
+        max={SIMULATION_DAY_S}
+        value={time}
+        aria-label="Simulation pass position"
+        aria-valuetext={currentPassIndex >= 0 ? `Pass ${currentPassIndex + 1} of ${passes.length} in progress` : "Between passes"}
+        onChange={(event) => seek(Number(event.currentTarget.value))}
+        onPointerDown={onScrubStart}
+        onPointerUp={onScrubEnd}
+        onPointerCancel={onScrubEnd}
+        onFocus={onScrubStart}
+        onBlur={onScrubEnd}
+      />
+    </div>
+  );
+});
+
 type LinkSimulationProps = {
   inputs: ChannelInputs;
   prediction: string | null;
@@ -69,10 +194,8 @@ type LinkSimulationProps = {
   apiStatus: ApiStatus;
   predictionError: string | null;
   clockRef: SimClockRef;
-  clockTime: number;
+  initialTime: number;
   initialPlaying: boolean;
-  onClockTick: (time: number) => void;
-  onClockSet: (time: number) => void;
   activeSection: string;
   navigation: readonly (readonly [string, string])[];
   onNavigate: (id: string) => void;
@@ -115,23 +238,23 @@ export function LinkSimulation({
   apiStatus,
   predictionError,
   clockRef,
-  clockTime,
+  initialTime,
   initialPlaying,
-  onClockTick,
-  onClockSet,
   activeSection,
   navigation,
   onNavigate,
   controls,
   onLinkVisibility,
 }: LinkSimulationProps) {
-  const [cameraView, setCameraView] = useState<CameraView>("auto");
-  const [speed, setSpeed] = useState<Speed>(0.25);
+  const [cameraView, setCameraView] = useState<CameraView>("orbit");
+  const [speed, setSpeed] = useState<Speed>(100);
   const [playing, setPlaying] = useState(initialPlaying);
-  const [autoSkip, setAutoSkip] = useState(true);
+  const [autoSkip, setAutoSkip] = useState(false);
   const [constellationMode, setConstellationMode] = useState(false);
   const [showConstellation, setShowConstellation] = useState(true);
-  const [handoverText, setHandoverText] = useState<string | null>(null);
+  const orbitTimeRef = useRef(initialTime);
+  const wasPlayingBeforeScrubRef = useRef(false);
+  const isScrubbingRef = useRef(false);
   const [controlsExpanded, setControlsExpanded] = useState(() => {
     try {
       return window.localStorage.getItem("satcom-controls-expanded") === "true";
@@ -149,16 +272,52 @@ export function LinkSimulation({
   const dockRef = useRef<HTMLElement>(null);
   const [consoleInView, setConsoleInView] = useState(true);
   const [stageHeight, setStageHeight] = useState(560);
-  const metrics = getOrbitMetrics(clockTime);
-  const [linkTruth, setLinkTruth] = useState<SceneLinkTruth>(() => ({
+  const initialTruth = useMemo<SceneLinkTruth>(() => {
+    const metrics = getOrbitMetrics(initialTime);
+    return {
     visible: metrics.elevationDeg >= MASK_ELEVATION_DEG,
     elevationDeg: metrics.elevationDeg,
     slantRangeKm: metrics.slantRangeKm,
     satelliteId: 1,
     inViewCount: 0,
-  }));
-  const visible = linkTruth.visible;
-  const currentPassIndex = passes.findIndex((pass) => clockTime >= pass.start && clockTime <= pass.end);
+    };
+  }, [initialTime]);
+  const linkTruthRef = useRef(initialTruth);
+  const linkTruthHandlerRef = useRef<(truth: SceneLinkTruth) => void>(() => undefined);
+  const handleLinkTruth = useCallback((truth: SceneLinkTruth) => {
+    linkTruthRef.current = truth;
+    linkTruthHandlerRef.current(truth);
+  }, []);
+  const seekSimulation = useCallback((time: number) => {
+    const nextTime = ((time % SIMULATION_DAY_S) + SIMULATION_DAY_S) % SIMULATION_DAY_S;
+    clockRef.current.t = nextTime;
+    orbitTimeRef.current = nextTime;
+  }, [clockRef]);
+  const setPlayback = useCallback((nextPlaying: boolean) => {
+    clockRef.current.playing = nextPlaying;
+    setPlaying(nextPlaying);
+  }, [clockRef]);
+  const beginScrubbing = useCallback(() => {
+    if (isScrubbingRef.current) return;
+    isScrubbingRef.current = true;
+    wasPlayingBeforeScrubRef.current = clockRef.current.playing;
+    setPlayback(false);
+  }, [clockRef, setPlayback]);
+  const endScrubbing = useCallback(() => {
+    if (!isScrubbingRef.current) return;
+    isScrubbingRef.current = false;
+    if (wasPlayingBeforeScrubRef.current) {
+      setPlayback(true);
+    }
+    wasPlayingBeforeScrubRef.current = false;
+  }, [setPlayback]);
+  const onAutoSkip = useCallback((seconds: number) => {
+    setSkipToast(`Skipped ${formatSkippedTime(seconds)} of simulated time to the next pass`);
+  }, []);
+  const reportLinkVisibility = useCallback((visible: boolean) => {
+    onLinkVisibility(visible);
+  }, [onLinkVisibility]);
+  const setCameraManual = useCallback(() => setCameraView("manual"), []);
   const selected = prediction ?? "RF";
   const rfProbability = confidence.RF;
   const fsoProbability = confidence.FSO;
@@ -218,51 +377,32 @@ export function LinkSimulation({
       if (event.code !== "Space" || event.repeat) return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))) return;
+      if (isScrubbingRef.current) return;
       event.preventDefault();
-      setPlaying((previous) => {
-        clockRef.current.playing = !previous;
-        return !previous;
-      });
+      setPlayback(!clockRef.current.playing);
     };
     window.addEventListener("keydown", handleSpace);
     return () => window.removeEventListener("keydown", handleSpace);
-  }, [clockRef]);
+  }, [clockRef, setPlayback]);
 
-  const setTime = (time: number) => {
-    const normalized = ((time % SIMULATION_DAY_S) + SIMULATION_DAY_S) % SIMULATION_DAY_S;
-    clockRef.current.t = normalized;
-    onClockSet(normalized);
-  };
   const togglePlayback = () => {
-    setPlaying((previous) => {
-      clockRef.current.playing = !previous;
-      return !previous;
-    });
+    setPlayback(!clockRef.current.playing);
   };
   const jumpToPass = () => {
     const upcomingPass = getNextPassTime(clockRef.current.t, passSamples);
     if (upcomingPass === null) return;
     const timeToPass = upcomingPass - clockRef.current.t;
-    const lead = clockRef.current.speed * 360;
+    const lead = 20;
     if (timeToPass > lead) {
       const destination = upcomingPass - lead;
       const skipped = destination - clockRef.current.t;
       if (skipped > 0) {
-        setTime(destination);
+        seekSimulation(destination);
         setSkipToast(`Skipped ${formatSkippedTime(skipped)} of simulated time to the next pass`);
       }
     }
-    clockRef.current.playing = true;
-    setPlaying(true);
+    setPlayback(true);
   };
-  const selectPass = (pass: PassWindow) => setTime(Math.max(0, pass.start - 15));
-  const statusText = visible
-    ? constellationMode
-      ? `${handoverText ?? `Link up · satellite ${linkTruth.satelliteId} · elevation ${Math.round(linkTruth.elevationDeg)}° · ${linkTruth.inViewCount} in view · ${selected} selected`}`
-      : `Link up · elevation ${Math.round(linkTruth.elevationDeg)}° · ${selected} selected`
-    : constellationMode
-      ? "No link: below 10° elevation"
-      : "No link: below 10° elevation";
 
   return (
     <>
@@ -276,26 +416,17 @@ export function LinkSimulation({
               cameraView={cameraView}
               htmlPortal={scenePortalRef}
               clockRef={clockRef}
-              onClockTick={onClockTick}
+              orbitTimeRef={orbitTimeRef}
               passSamples={passSamples}
               autoSkip={autoSkip}
-              onAutoSkip={(seconds) => setSkipToast(`Skipped ${formatSkippedTime(seconds)} of simulated time to the next pass`)}
+              onAutoSkip={onAutoSkip}
               constellationMode={constellationMode}
-              servingSatelliteId={linkTruth.satelliteId}
               showConstellation={showConstellation}
-              isVisible={visible}
               playing={playing}
               controlsEnabled={consoleInView}
               stageHeight={stageHeight}
-              onLinkTruth={(truth) => {
-                if (constellationMode && truth.satelliteId !== linkTruth.satelliteId) {
-                  setHandoverText(`Handover to satellite ${truth.satelliteId}`);
-                  window.setTimeout(() => setHandoverText(null), 2000);
-                }
-                onLinkVisibility(truth.visible);
-                setLinkTruth(truth);
-              }}
-              onCameraManual={() => setCameraView("manual")}
+              onLinkTruth={handleLinkTruth}
+              onCameraManual={setCameraManual}
             />
           </Suspense>
         </SceneErrorBoundary>
@@ -355,7 +486,7 @@ export function LinkSimulation({
               <p>Why passes are rare: a single satellite takes about 96 minutes per orbit, so the station sees only a few short passes a day. The constellation is an illustrative Walker pattern with handover.</p>
               <p>Link choice: while satellites are in view, the trained Random Forest picks RF or FSO from the four channel values you set. Those values do not change with satellite position.</p>
               <p>When constellation mode is enabled, small dots show the other satellites in the illustrative 144-satellite constellation. The large model is the satellite currently linked.</p>
-              <p>Time runs faster than real time (x0.25 to x240 simulated minutes per real second). Illustrative geometry, not to scale, not live telemetry.</p>
+              <p>Each speed setting means that many simulated seconds per real second. The geometry is illustrative, not a real satellite link.</p>
               </div>
             </details>
           </Panel>
@@ -371,7 +502,7 @@ export function LinkSimulation({
                   clockRef.current.speed = next;
                   setSpeed(next);
                 }}>◀</button>
-                <strong>x{speed}</strong>
+                <strong>×{speed}</strong>
                 <button type="button" aria-label="Next speed" onClick={() => {
                   const index = speedOptions.indexOf(speed);
                   const next = speedOptions[(index + 1) % speedOptions.length] as Speed;
@@ -379,35 +510,36 @@ export function LinkSimulation({
                   setSpeed(next);
                 }}>▶</button>
               </div>
-            <div className="pass-strip" aria-label="24 hour pass strip">
-              {passes.map((pass, index) => <PassMarker key={pass.start} pass={pass} index={index} current={index === currentPassIndex} onSelect={() => selectPass(pass)} />)}
-              <input
-                className="pass-playhead"
-                type="range"
-                min={0}
-                max={SIMULATION_DAY_S}
-                value={clockTime}
-                aria-label="Simulation pass position"
-                aria-valuetext={currentPassIndex >= 0 ? `Pass ${currentPassIndex + 1} of ${passes.length} in progress` : "Between passes"}
-                onChange={(event) => setTime(Number(event.currentTarget.value))}
-              />
-            </div>
+            <PlaybackTimeline
+              clockRef={clockRef}
+              initialTime={initialTime}
+              passes={passes}
+              onSeek={seekSimulation}
+              onScrubStart={beginScrubbing}
+              onScrubEnd={endScrubbing}
+            />
             <button type="button" className="next-pass-button" onClick={jumpToPass}>{constellationMode ? "Next handover" : "Next pass"}</button>
             <button type="button" className="controls-toggle" aria-expanded={controlsExpanded} aria-controls="expanded-controls" onClick={() => setControlsExpanded((expanded) => !expanded)}>Controls <span aria-hidden="true">{controlsExpanded ? "⌃" : "⌄"}</span></button>
             </div>
-            <div className="compact-status" role="status" aria-live="polite">{statusText}</div>
+            <LinkTruthDisplay
+              handlerRef={linkTruthHandlerRef}
+              initialTruth={initialTruth}
+              constellationMode={constellationMode}
+              selected={selected}
+              onLinkVisibility={reportLinkVisibility}
+            />
           </div>
           {controlsExpanded && <div id="expanded-controls" className="expanded-controls">
             <div className="expanded-group">
             <strong>View</strong>
             <div className="dock-views" role="group" aria-label="Camera views">
               {([
-                ["auto", "Auto"],
-                ["overview", "Overview"],
-                ["follow", "Follow satellite"],
+                ["orbit", "Orbit"],
                 ["ground", "Ground station"],
+                ["follow", "Follow satellite"],
+                ["overview", "Overview"],
               ] as const).map(([view, label]) => (
-                <button type="button" key={view} aria-pressed={cameraView === view} className={cameraView === view ? "active" : ""} onClick={() => setCameraView(view)}>{label}</button>
+                <button type="button" key={view} aria-label={label} aria-pressed={cameraView === view} className={cameraView === view ? "active" : ""} onClick={() => setCameraView(view)}>{label}</button>
               ))}
             </div>
             </div>
@@ -415,10 +547,10 @@ export function LinkSimulation({
             <strong>Speed</strong>
             <div className="speed-control" role="group" aria-label="Simulation speed">
               {speedOptions.map((speedOption) => (
-                <button type="button" key={speedOption} aria-pressed={speedOption === speed} className={speedOption === speed ? "active" : ""} onClick={() => { clockRef.current.speed = speedOption; setSpeed(speedOption); }}>{`x${speedOption}`}</button>
+                <button type="button" key={speedOption} aria-pressed={speedOption === speed} className={speedOption === speed ? "active" : ""} onClick={() => { clockRef.current.speed = speedOption; setSpeed(speedOption); }}>{`×${speedOption}`}</button>
               ))}
             </div>
-            <span className="speed-helper">1 s = {speed} min of simulated time</span>
+            <span className="speed-helper">1 orbit = {Number((5730 / speed).toFixed(1))} s real time</span>
             </div>
             <div className="expanded-group expanded-options">
             <strong>Options</strong>

@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   CameraControls,
@@ -16,12 +16,9 @@ import {
   ORBIT_INCLINATION_DEG,
   ORBIT_PERIOD_S,
   ORBIT_RADIUS_SCENE_UNITS,
-  VISUAL_ORBIT_RADIUS,
   R_E,
   WALKER_SATS_PER_PLANE,
   WALKER_TOTAL_SATS,
-  orbitPoint,
-  getDisplayPosition,
   getNextPassTime,
   SIMULATION_DAY_S,
   type ElevationSample,
@@ -67,6 +64,25 @@ const GROUND_STATION_ORIENTATION = new THREE.Quaternion().setFromUnitVectors(
 );
 const EARTH_NORMAL_SCALE = new THREE.Vector2(0.8, 0.8);
 const UNIT_Y = new THREE.Vector3(0, 1, 0);
+const ORBIT_INCLINATION_RAD = THREE.MathUtils.degToRad(ORBIT_INCLINATION_DEG);
+const DISPLAY_ORBIT_RADIUS = 3.25;
+
+export type CameraView = "orbit" | "ground" | "follow" | "overview" | "manual";
+
+function setOrbitPosition(
+  target: THREE.Vector3,
+  plane: number,
+  argumentOfLatitude: number,
+  radius: number,
+) {
+  const raan = (plane * 2 * Math.PI) / 12;
+  const xOrbital = radius * Math.cos(argumentOfLatitude);
+  const yOrbital = radius * Math.sin(argumentOfLatitude);
+  const xEci = xOrbital * Math.cos(raan) - yOrbital * Math.cos(ORBIT_INCLINATION_RAD) * Math.sin(raan);
+  const yEci = xOrbital * Math.sin(raan) + yOrbital * Math.cos(ORBIT_INCLINATION_RAD) * Math.cos(raan);
+  const zEci = yOrbital * Math.sin(ORBIT_INCLINATION_RAD);
+  target.set(xEci, zEci, -yEci);
+}
 
 function updateCameraAspect(camera: THREE.Camera, aspect: number) {
   if (camera instanceof THREE.PerspectiveCamera) {
@@ -78,21 +94,19 @@ function updateCameraAspect(camera: THREE.Camera, aspect: number) {
 type SceneProps = {
   selectedLink: string;
   cloudAttenuationDb: number;
-  cameraView: "auto" | "manual" | "overview" | "follow" | "ground";
+  cameraView: CameraView;
   htmlPortal: RefObject<HTMLElement>;
   clockRef: SimClockRef;
-  onClockTick: (time: number) => void;
+  orbitTimeRef: RefObject<number>;
   passSamples: readonly ElevationSample[];
   autoSkip: boolean;
   onAutoSkip: (seconds: number) => void;
-  isVisible: boolean;
   playing: boolean;
   controlsEnabled: boolean;
   stageHeight: number;
   onCameraManual: () => void;
   onLinkTruth: (truth: LinkTruth) => void;
   constellationMode: boolean;
-  servingSatelliteId?: number;
   showConstellation?: boolean;
 };
 
@@ -111,7 +125,14 @@ const _occSeg = new THREE.Vector3();
 const _occDir = new THREE.Vector3();
 const _occToEarth = new THREE.Vector3();
 const _occClosest = new THREE.Vector3();
-const FRAMING_RADIUS = 2.15;
+const _earthRotationAxis = new THREE.Vector3(0, 1, 0);
+const _satelliteOrbitNormal = new THREE.Vector3();
+const _satelliteNadir = new THREE.Vector3();
+const _satelliteAlongTrack = new THREE.Vector3();
+const _satelliteCrossTrack = new THREE.Vector3();
+const _satelliteAttitudeMatrix = new THREE.Matrix4();
+const _satelliteAttitudeQuaternion = new THREE.Quaternion();
+const FRAMING_RADIUS = 3.7;
 const AUTO_AIM_SHIFT = 0.45;
 
 function checkSatelliteOcclusion(
@@ -212,8 +233,13 @@ function StationCallout({
   const earthWorldPos = useMemo(() => new THREE.Vector3(), []);
   const up = useMemo(() => new THREE.Vector3(), []);
   const toCam = useMemo(() => new THREE.Vector3(), []);
+  const elapsedRef = useRef(0);
+  const visibleRef = useRef(true);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
+    elapsedRef.current += Math.min(delta, 0.05);
+    if (elapsedRef.current < 0.25) return;
+    elapsedRef.current = 0;
     const station = stationRef.current;
     const earthCenter = earthCenterRef.current;
     if (!station || !earthCenter) return;
@@ -221,20 +247,27 @@ function StationCallout({
     earthCenter.getWorldPosition(earthWorldPos);
     up.subVectors(stationWorldPos, earthWorldPos).normalize();
     toCam.subVectors(camera.position, stationWorldPos);
-    setVisible(up.dot(toCam) > 0.02);
+    const nextVisible = up.dot(toCam) > 0.02;
+    if (nextVisible !== visibleRef.current) {
+      visibleRef.current = nextVisible;
+      setVisible(nextVisible);
+    }
   }, -1);
 
   if (!visible) return null;
 
   return (
     <Html position={[0, 0.22, 0]} center portal={htmlPortal}>
-      <Callout
+      <MemoizedCallout
         direction="down-left"
         title="Ground station / Bengaluru · 12.97°N 77.59°E"
       />
     </Html>
   );
 }
+
+const MemoizedCallout = memo(Callout);
+const MemoizedStationCallout = memo(StationCallout);
 
 function Earth({
   stationRef,
@@ -352,7 +385,7 @@ function SatelliteModel({
   rfEmitterRef,
   fsoEmitterRef,
   htmlPortal,
-  clockRef,
+  orbitTimeRef,
   linkTruthRef,
   onLinkTruth,
   constellationMode,
@@ -363,13 +396,11 @@ function SatelliteModel({
   rfEmitterRef: RefObject<THREE.Group | null>;
   fsoEmitterRef: RefObject<THREE.Group | null>;
   htmlPortal: RefObject<HTMLElement>;
-  clockRef: SimClockRef;
+  orbitTimeRef: RefObject<number>;
   linkTruthRef: LinkTruthRef;
   onLinkTruth: (truth: LinkTruth) => void;
   constellationMode: boolean;
 }) {
-  const leftArrayRef = useRef<THREE.Group>(null);
-  const rightArrayRef = useRef<THREE.Group>(null);
   const solarTexture = useMemo(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 256;
@@ -409,45 +440,60 @@ function SatelliteModel({
   const stationNormal = useMemo(() => new THREE.Vector3(), []);
   const satelliteDirection = useMemo(() => new THREE.Vector3(), []);
   const realSatelliteLocalPosition = useMemo(() => new THREE.Vector3(), []);
+  const planeNormal = useMemo(() => new THREE.Vector3(), []);
+  const constellationCandidate = useMemo(() => new THREE.Vector3(), []);
+  const candidateDirection = useMemo(() => new THREE.Vector3(), []);
   const stationBaselineCapturedRef = useRef(false);
   const linkUpRef = useRef(false);
   const publishElapsedRef = useRef(0);
   const servingIdRef = useRef(1);
+  const lastPublishedRef = useRef<LinkTruth | null>(null);
   const rfActive = selectedLink === "RF";
   const fsoActive = selectedLink === "FSO";
 
   useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.05);
     if (satelliteRef.current) {
       const currentPlane = Math.floor((servingIdRef.current - 1) / WALKER_SATS_PER_PLANE);
       const currentSatellite = (servingIdRef.current - 1) % WALKER_SATS_PER_PLANE;
-      const anomaly = (2 * Math.PI * clockRef.current.t) / ORBIT_PERIOD_S;
+      const anomaly = (2 * Math.PI * orbitTimeRef.current) / ORBIT_PERIOD_S;
       const argumentOfLatitude = constellationMode
         ? anomaly +
           (currentSatellite * 2 * Math.PI) / WALKER_SATS_PER_PLANE +
           (currentPlane * 2 * Math.PI) / WALKER_TOTAL_SATS
         : anomaly;
       const orbitPlane = constellationMode ? currentPlane : 0;
-      const realPoint = orbitPoint(orbitPlane, argumentOfLatitude);
-      satelliteRef.current.position.set(...getDisplayPosition(orbitPlane, argumentOfLatitude));
-      realSatelliteLocalPosition.set(...realPoint);
+      setOrbitPosition(realSatelliteLocalPosition, orbitPlane, argumentOfLatitude, ORBIT_RADIUS_SCENE_UNITS);
+      setOrbitPosition(satelliteRef.current.position, orbitPlane, argumentOfLatitude, DISPLAY_ORBIT_RADIUS);
 
-      // Satellite attitude: local +Y points to Earth (nadir), local +X is orbit normal
-      const aheadPoint = new THREE.Vector3(...getDisplayPosition(orbitPlane, argumentOfLatitude + 0.0001));
-      const uX = new THREE.Vector3().crossVectors(satelliteRef.current.position, aheadPoint).normalize();
-      const uY = satelliteRef.current.position.clone().negate().normalize();
-      const uZ = new THREE.Vector3().crossVectors(uX, uY).normalize();
-      const attMatrix = new THREE.Matrix4().makeBasis(uX, uY, uZ);
-      satelliteRef.current.quaternion.setFromRotationMatrix(attMatrix);
+      const raan = (orbitPlane * 2 * Math.PI) / 12;
+      _satelliteOrbitNormal.set(
+        Math.sin(ORBIT_INCLINATION_RAD) * Math.sin(raan),
+        Math.cos(ORBIT_INCLINATION_RAD),
+        Math.sin(ORBIT_INCLINATION_RAD) * Math.cos(raan),
+      );
+      _satelliteNadir.copy(satelliteRef.current.position).negate().normalize();
+      _satelliteAlongTrack
+        .crossVectors(_satelliteOrbitNormal, satelliteRef.current.position)
+        .normalize();
+      _satelliteCrossTrack
+        .crossVectors(_satelliteNadir, _satelliteAlongTrack)
+        .normalize();
+      _satelliteAttitudeMatrix.makeBasis(
+        _satelliteCrossTrack,
+        _satelliteNadir,
+        _satelliteAlongTrack,
+      );
+      _satelliteAttitudeQuaternion.setFromRotationMatrix(_satelliteAttitudeMatrix);
+      satelliteRef.current.quaternion.copy(_satelliteAttitudeQuaternion);
       if (import.meta.env.DEV) {
-        const inclination = THREE.MathUtils.degToRad(ORBIT_INCLINATION_DEG);
-        const raan = (orbitPlane * 2 * Math.PI) / 12;
-        const planeNormal = new THREE.Vector3(
-          Math.sin(inclination) * Math.sin(raan),
-          Math.cos(inclination),
-          Math.sin(inclination) * Math.cos(raan),
+        planeNormal.set(
+          Math.sin(ORBIT_INCLINATION_RAD) * Math.sin(raan),
+          Math.cos(ORBIT_INCLINATION_RAD),
+          Math.sin(ORBIT_INCLINATION_RAD) * Math.cos(raan),
         );
         console.assert(
-          Math.abs(satelliteRef.current.position.length() - VISUAL_ORBIT_RADIUS) < 0.001 &&
+          Math.abs(satelliteRef.current.position.length() - DISPLAY_ORBIT_RADIUS) < 0.001 &&
           Math.abs(satelliteRef.current.position.dot(planeNormal)) < 0.001,
           "Serving satellite is not on its orbit plane.",
         );
@@ -475,12 +521,12 @@ function SatelliteModel({
           const plane = Math.floor((id - 1) / WALKER_SATS_PER_PLANE);
           const sat = (id - 1) % WALKER_SATS_PER_PLANE;
           const candidateAnomaly =
-            (2 * Math.PI * clockRef.current.t) / ORBIT_PERIOD_S +
+            (2 * Math.PI * orbitTimeRef.current) / ORBIT_PERIOD_S +
             (sat * 2 * Math.PI) / WALKER_SATS_PER_PLANE +
             (plane * 2 * Math.PI) / WALKER_TOTAL_SATS;
-          const candidate = new THREE.Vector3(...orbitPoint(plane, candidateAnomaly));
-          candidate.applyMatrix4(earthCenterRef.current.matrixWorld);
-          const candidateDirection = candidate.sub(stationWorldPosition);
+          setOrbitPosition(constellationCandidate, plane, candidateAnomaly, ORBIT_RADIUS_SCENE_UNITS);
+          constellationCandidate.applyMatrix4(earthCenterRef.current.matrixWorld);
+          candidateDirection.subVectors(constellationCandidate, stationWorldPosition);
           const candidateElevation = Math.asin(THREE.MathUtils.clamp(candidateDirection.dot(stationNormal) / candidateDirection.length(), -1, 1)) * THREE.MathUtils.RAD2DEG;
           if (candidateElevation >= MASK_ELEVATION_DEG) inViewCount += 1;
           if (candidateElevation > bestElevation) {
@@ -493,21 +539,29 @@ function SatelliteModel({
         }
       }
       const currentElevation = constellationMode ? bestElevation : elevation;
-      linkUpRef.current = linkUpRef.current
-        ? currentElevation >= MASK_ELEVATION_DEG - 1
-        : currentElevation >= MASK_ELEVATION_DEG;
-      const truth = {
-        visible: linkUpRef.current,
-        elevationDeg: currentElevation,
-        slantRangeKm,
-        satelliteId: servingIdRef.current,
-        inViewCount: constellationMode ? inViewCount : (elevation >= MASK_ELEVATION_DEG ? 1 : 0),
-      };
-      if (linkTruthRef) linkTruthRef.current = truth;
-      publishElapsedRef.current += delta;
-      if (publishElapsedRef.current >= 0.1) {
+      linkUpRef.current = currentElevation >= MASK_ELEVATION_DEG;
+      const truth = linkTruthRef.current;
+      truth.visible = linkUpRef.current;
+      truth.elevationDeg = currentElevation;
+      truth.slantRangeKm = slantRangeKm;
+      truth.satelliteId = servingIdRef.current;
+      truth.inViewCount = constellationMode ? inViewCount : (elevation >= MASK_ELEVATION_DEG ? 1 : 0);
+      publishElapsedRef.current += dt;
+      if (publishElapsedRef.current >= 0.25) {
         publishElapsedRef.current = 0;
-        onLinkTruth(truth);
+        const previous = lastPublishedRef.current;
+        if (
+          !previous ||
+          previous.visible !== truth.visible ||
+          Math.round(previous.elevationDeg) !== Math.round(truth.elevationDeg) ||
+          Math.round(previous.slantRangeKm) !== Math.round(truth.slantRangeKm) ||
+          previous.satelliteId !== truth.satelliteId ||
+          previous.inViewCount !== truth.inViewCount
+        ) {
+          const publishedTruth = { ...truth };
+          lastPublishedRef.current = publishedTruth;
+          onLinkTruth(publishedTruth);
+        }
       }
       if (import.meta.env.DEV) {
         if (!stationBaselineCapturedRef.current) {
@@ -531,16 +585,11 @@ function SatelliteModel({
       rfEmitterRef.current?.lookAt(target);
       fsoEmitterRef.current?.lookAt(target);
     }
-    if (clockRef.current.playing && leftArrayRef.current && rightArrayRef.current) {
-      const sway = Math.sin(clockRef.current.t * 0.18) * 0.025;
-      leftArrayRef.current.rotation.z = sway;
-      rightArrayRef.current.rotation.z = -sway;
-    }
   }, -2);
 
   return (
     <group ref={satelliteRef}>
-      <SatelliteCallout selectedLink={selectedLink} htmlPortal={htmlPortal} clockRef={clockRef} satelliteRef={satelliteRef} linkTruthRef={linkTruthRef} earthCenterRef={earthCenterRef} />
+      <MemoizedSatelliteCallout selectedLink={selectedLink} htmlPortal={htmlPortal} orbitTimeRef={orbitTimeRef} satelliteRef={satelliteRef} linkTruthRef={linkTruthRef} earthCenterRef={earthCenterRef} />
       <group scale={0.45}>
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.24, 0.008, 8, 32]} />
@@ -569,11 +618,7 @@ function SatelliteModel({
       </mesh>
 
       {[-1, 1].map((side) => (
-        <group
-          key={side}
-          ref={side < 0 ? leftArrayRef : rightArrayRef}
-          position={[side * 0.16, 0, 0]}
-        >
+        <group key={side} position={[side * 0.16, 0, 0]}>
           <mesh
             position={[side * 0.24, 0, 0]}
             rotation={[0, 0, Math.PI / 2]}
@@ -649,17 +694,19 @@ function SatelliteModel({
   );
 }
 
+const MemoizedSatelliteModel = memo(SatelliteModel);
+
 function SatelliteCallout({
   selectedLink,
   htmlPortal,
-  clockRef,
+  orbitTimeRef,
   satelliteRef,
   linkTruthRef,
   earthCenterRef,
 }: {
   selectedLink: string;
   htmlPortal: RefObject<HTMLElement>;
-  clockRef: SimClockRef;
+  orbitTimeRef: RefObject<number>;
   satelliteRef: RefObject<THREE.Group | null>;
   linkTruthRef: LinkTruthRef;
   earthCenterRef: RefObject<THREE.Group | null>;
@@ -668,11 +715,20 @@ function SatelliteCallout({
   const [visible, setVisible] = useState(true);
   const [title, setTitle] = useState("SATCOM-1");
   const [subtitle, setSubtitle] = useState("Below horizon");
-  const [detail, setDetail] = useState<string | undefined>();
+  const [detail, setDetail] = useState<string | undefined>(undefined);
   const satWorld = useMemo(() => new THREE.Vector3(), []);
   const earthWorld = useMemo(() => new THREE.Vector3(), []);
+  const earthLocalPosition = useMemo(() => new THREE.Vector3(), []);
+  const elapsedRef = useRef(0);
+  const visibleRef = useRef(true);
+  const titleRef = useRef("SATCOM-1");
+  const subtitleRef = useRef("Below horizon");
+  const detailRef = useRef<string | undefined>(undefined);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
+    elapsedRef.current += Math.min(delta, 0.05);
+    if (elapsedRef.current < 0.25) return;
+    elapsedRef.current = 0;
     const satellite = satelliteRef.current;
     const earthCenter = earthCenterRef.current;
     if (!satellite || !earthCenter) return;
@@ -681,21 +737,35 @@ function SatelliteCallout({
 
     // Ray-sphere intersection test: Earth blocks satellite view
     const occluded = checkSatelliteOcclusion(camera.position, satWorld, earthWorld, 2.0);
-    setVisible(!occluded);
+    const nextVisible = !occluded;
+    if (nextVisible !== visibleRef.current) {
+      visibleRef.current = nextVisible;
+      setVisible(nextVisible);
+    }
     const truth = linkTruthRef.current;
-    setTitle(`SATCOM-${truth.satelliteId}`);
-    setSubtitle(
+    const nextTitle = `SATCOM-${truth.satelliteId}`;
+    const nextSubtitle =
       truth.visible
         ? `Elevation ${Math.round(truth.elevationDeg)}° · ${Math.round(truth.slantRangeKm).toLocaleString()} km`
-        : "Below horizon"
-    );
-    setDetail(truth.visible ? `Active link: ${selectedLink}` : undefined);
+        : "Below horizon";
+    const nextDetail = truth.visible ? `Active link: ${selectedLink}` : undefined;
+    if (nextTitle !== titleRef.current) {
+      titleRef.current = nextTitle;
+      setTitle(nextTitle);
+    }
+    if (nextSubtitle !== subtitleRef.current) {
+      subtitleRef.current = nextSubtitle;
+      setSubtitle(nextSubtitle);
+    }
+    if (nextDetail !== detailRef.current) {
+      detailRef.current = nextDetail;
+      setDetail(nextDetail);
+    }
 
     if (import.meta.env.DEV && linkTruthRef.current.elevationDeg > 85) {
-      const satellitePosition = satellite.position;
-      const earthLocalPosition = satellitePosition.clone().applyAxisAngle(
-        new THREE.Vector3(0, 1, 0),
-        -EARTH_ROTATION_RAD_S * clockRef.current.t,
+      earthLocalPosition.copy(satellite.position).applyAxisAngle(
+        _earthRotationAxis,
+        -EARTH_ROTATION_RAD_S * orbitTimeRef.current,
       );
       const radius = earthLocalPosition.length();
       const latitudeDeg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(earthLocalPosition.y / radius, -1, 1)));
@@ -711,7 +781,7 @@ function SatelliteCallout({
 
   return (
     <Html position={[0, 0, 0]} center portal={htmlPortal}>
-      <Callout
+      <MemoizedCallout
         direction="up-right"
         title={title}
         subtitle={subtitle}
@@ -720,6 +790,8 @@ function SatelliteCallout({
     </Html>
   );
 }
+
+const MemoizedSatelliteCallout = memo(SatelliteCallout);
 
 function GroundStation({
   stationRef,
@@ -771,7 +843,7 @@ function GroundStation({
         <meshStandardMaterial color={theme.scene.silver} metalness={0.7} />
       </mesh>
 
-      <StationCallout
+      <MemoizedStationCallout
         stationRef={stationRef}
         earthCenterRef={earthCenterRef}
         htmlPortal={htmlPortal}
@@ -834,91 +906,76 @@ function CameraRig({
   const cameraPosition = useMemo(() => new THREE.Vector3(), []);
   const desiredCameraPosition = useMemo(() => new THREE.Vector3(), []);
   const direction = useMemo(() => new THREE.Vector3(), []);
-  const stationUp = useMemo(() => new THREE.Vector3(), []);
+  const followAbove = useMemo(() => new THREE.Vector3(), []);
   const center = useMemo(() => new THREE.Vector3(), []);
   const currentTarget = useMemo(() => new THREE.Vector3(), []);
+  const earthQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const zenith = useMemo(() => new THREE.Vector3(), []);
+  const earthNorth = useMemo(() => new THREE.Vector3(), []);
+  const stationNorth = useMemo(() => new THREE.Vector3(), []);
+  const viewDirection = useMemo(() => new THREE.Vector3(), []);
+  const aimTarget = useMemo(() => new THREE.Vector3(), []);
 
   useEffect(() => {
     updateCameraAspect(camera, size.width / Math.max(1, size.height));
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const aspect = size.width / Math.max(1, size.height);
+      camera.fov = cameraView === "orbit"
+        ? THREE.MathUtils.radToDeg(
+            2 * Math.atan((DISPLAY_ORBIT_RADIUS * 1.08) / (8 * Math.min(1, aspect))),
+          )
+        : 45;
+      camera.updateProjectionMatrix();
+    }
     camera.setViewOffset(size.width, size.height, 0, Math.max(0, (size.height - stageHeight) / 2), size.width, size.height);
     camera.updateProjectionMatrix();
     return () => {
       camera.clearViewOffset();
       camera.updateProjectionMatrix();
     };
-  }, [camera, size.height, size.width, stageHeight]);
+  }, [camera, cameraView, size.height, size.width, stageHeight]);
 
   useEffect(() => {
     const controls = controlsRef.current;
-    if (!controls || cameraView === "manual" || cameraView === "auto") return;
+    if (!controls || cameraView === "manual" || cameraView === "ground" || cameraView === "follow") return;
+
+    if (cameraView === "orbit") {
+      controls.setLookAt(0, -1.7, 8, 0, -1.7, 0, false);
+      return;
+    }
 
     if (cameraView === "overview") {
       controls.setLookAt(0, -0.3, 8.5, 0, -1.1, 0, true);
       return;
     }
 
-    if (cameraView === "follow" && satelliteRef.current) {
-      satelliteRef.current.getWorldPosition(target);
-      cameraPosition.copy(target).add(new THREE.Vector3(1, 1, 3));
-    } else if (stationRef.current && satelliteRef.current) {
-      stationRef.current.getWorldPosition(target);
-      satelliteRef.current.getWorldPosition(direction);
-      direction.sub(target).normalize();
-      if (earthCenterRef.current) {
-        earthCenterRef.current.getWorldPosition(center);
-        stationUp.copy(target).sub(center).normalize();
-      } else {
-        stationUp.set(0, 1, 0);
-      }
-      cameraPosition.copy(target).addScaledVector(stationUp, 1.6);
-      target.addScaledVector(direction, 0.8);
-    }
-    controls.setLookAt(
-      cameraPosition.x,
-      cameraPosition.y,
-      cameraPosition.z,
-      target.x,
-      target.y,
-      target.z,
-      true,
-    );
-  }, [cameraView, earthCenterRef, satelliteRef, stationRef, target, cameraPosition, direction, stationUp, center]);
+  }, [cameraView]);
 
   useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.05);
     const controls = controlsRef.current;
     if (!controls || cameraBusy) return;
 
-    if (cameraView === "auto" && stationRef.current && earthCenterRef.current) {
-      stationRef.current.getWorldPosition(target);
+    if (cameraView === "follow" && satelliteRef.current && earthCenterRef.current) {
+      satelliteRef.current.updateWorldMatrix(true, false);
+      satelliteRef.current.getWorldPosition(target);
       earthCenterRef.current.getWorldPosition(center);
-      const earthQuat = earthCenterRef.current.getWorldQuaternion(new THREE.Quaternion());
+      direction.copy(target).sub(center).normalize();
+      followAbove.set(0, 1, 0).addScaledVector(direction, -direction.y);
+      if (followAbove.lengthSq() < 1e-6) {
+        followAbove.set(1, 0, 0).addScaledVector(direction, -direction.x);
+      }
+      followAbove.normalize();
+      desiredCameraPosition
+        .copy(target)
+        .addScaledVector(direction, 1.55)
+        .addScaledVector(followAbove, 0.65);
 
-      direction.subVectors(target, center);
-      const zenith = direction.clone().normalize();
-
-      const aimTarget = center.clone().addScaledVector(zenith, AUTO_AIM_SHIFT);
-
-      // Earth's North pole in world coordinates
-      const earthNorth = new THREE.Vector3(0, 1, 0).applyQuaternion(earthQuat).normalize();
-      const stationNorth = earthNorth.clone().addScaledVector(zenith, -earthNorth.dot(zenith)).normalize();
-
-      // View station about 32° off its zenith, tilted south
-      const angle32 = THREE.MathUtils.degToRad(32);
-      const viewDir = zenith.clone().multiplyScalar(Math.cos(angle32)).addScaledVector(stationNorth, -Math.sin(angle32)).normalize();
-
-      const fieldOfView = THREE.MathUtils.degToRad(camera instanceof THREE.PerspectiveCamera ? camera.fov : 45);
-      const stageRatio = Math.min(1, stageHeight / Math.max(1, size.height));
-      const effectiveVHalf = Math.atan(0.85 * stageRatio * Math.tan(fieldOfView / 2));
-      const effectiveHHalf = Math.atan(0.85 * (size.width / Math.max(1, size.height)) * Math.tan(fieldOfView / 2));
-      const halfAngle = Math.min(effectiveVHalf, effectiveHHalf);
-      const distance = THREE.MathUtils.clamp(FRAMING_RADIUS / Math.sin(halfAngle), 3.2, 13.5);
-
-      desiredCameraPosition.copy(aimTarget).addScaledVector(viewDir, distance);
-
+      const damping = 1 - Math.pow(0.85, dt * 60);
       controls.getPosition(cameraPosition);
-      cameraPosition.lerp(desiredCameraPosition, 1 - Math.exp(-delta / 0.8));
+      cameraPosition.lerp(desiredCameraPosition, damping);
       controls.getTarget(currentTarget);
-      currentTarget.lerp(aimTarget, 1 - Math.exp(-delta / 0.8));
+      currentTarget.lerp(target, damping);
       controls.setLookAt(
         cameraPosition.x,
         cameraPosition.y,
@@ -928,18 +985,47 @@ function CameraRig({
         currentTarget.z,
         false,
       );
-    } else if (cameraView === "follow" && satelliteRef.current) {
-      satelliteRef.current.getWorldPosition(target);
-      desiredCameraPosition.set(1, 1, 3).add(target);
+      return;
+    }
+
+    if (cameraView === "ground" && stationRef.current && earthCenterRef.current) {
+      stationRef.current.getWorldPosition(target);
+      earthCenterRef.current.getWorldPosition(center);
+      const earthQuat = earthCenterRef.current.getWorldQuaternion(earthQuaternion);
+
+      direction.subVectors(target, center);
+      zenith.copy(direction).normalize();
+
+      aimTarget.copy(center).addScaledVector(zenith, AUTO_AIM_SHIFT);
+
+      // Earth's North pole in world coordinates
+      earthNorth.copy(UNIT_Y).applyQuaternion(earthQuat).normalize();
+      stationNorth.copy(earthNorth).addScaledVector(zenith, -earthNorth.dot(zenith)).normalize();
+
+      // View station about 32° off its zenith, tilted south
+      const angle32 = THREE.MathUtils.degToRad(32);
+      viewDirection.copy(zenith).multiplyScalar(Math.cos(angle32)).addScaledVector(stationNorth, -Math.sin(angle32)).normalize();
+
+      const fieldOfView = THREE.MathUtils.degToRad(camera instanceof THREE.PerspectiveCamera ? camera.fov : 45);
+      const stageRatio = Math.min(1, stageHeight / Math.max(1, size.height));
+      const effectiveVHalf = Math.atan(0.85 * stageRatio * Math.tan(fieldOfView / 2));
+      const effectiveHHalf = Math.atan(0.85 * (size.width / Math.max(1, size.height)) * Math.tan(fieldOfView / 2));
+      const halfAngle = Math.min(effectiveVHalf, effectiveHHalf);
+      const distance = THREE.MathUtils.clamp(FRAMING_RADIUS / Math.sin(halfAngle), 3.2, 18);
+
+      desiredCameraPosition.copy(aimTarget).addScaledVector(viewDirection, distance);
+
       controls.getPosition(cameraPosition);
-      cameraPosition.lerp(desiredCameraPosition, Math.min(1, delta * 4));
+      cameraPosition.lerp(desiredCameraPosition, 1 - Math.exp(-dt / 0.8));
+      controls.getTarget(currentTarget);
+      currentTarget.lerp(aimTarget, 1 - Math.exp(-dt / 0.8));
       controls.setLookAt(
         cameraPosition.x,
         cameraPosition.y,
         cameraPosition.z,
-        target.x,
-        target.y,
-        target.z,
+        currentTarget.x,
+        currentTarget.y,
+        currentTarget.z,
         false,
       );
     }
@@ -950,8 +1036,8 @@ function CameraRig({
       ref={controlsRef}
       makeDefault
       enabled={controlsEnabled}
-      minDistance={3.2}
-      maxDistance={14}
+      minDistance={cameraView === "follow" ? 1.4 : 3.2}
+      maxDistance={18}
       minPolarAngle={0.3}
       maxPolarAngle={2.8}
       smoothTime={1}
@@ -1019,7 +1105,6 @@ function LinkBeams({
   const target = useMemo(() => new THREE.Vector3(), []);
   const satellitePosition = useMemo(() => new THREE.Vector3(), []);
   const stationPosition = useMemo(() => new THREE.Vector3(), []);
-  const stationNormal = useMemo(() => new THREE.Vector3(), []);
   const direction = useMemo(() => new THREE.Vector3(), []);
   const rfDirection = useMemo(() => new THREE.Vector3(), []);
   const fsoDirection = useMemo(() => new THREE.Vector3(), []);
@@ -1030,29 +1115,54 @@ function LinkBeams({
   const dishLocalQuaternion = useMemo(() => new THREE.Quaternion(), []);
   const realTimeRef = useRef(0);
   const transitionProgressRef = useRef(0.2);
-  const linkFadeRef = useRef(0);
   const previousSelectionRef = useRef(selectedLink);
   const fromRfOpacityRef = useRef(selectedLink === "RF" ? 1 : 0.45);
   const targetRfOpacityRef = useRef(selectedLink === "RF" ? 1 : 0.45);
+  const rfWaveGeometry = useMemo(() => new THREE.TorusGeometry(1, 0.007, 4, 36), []);
+  const rfWaveMaterial = useMemo(() => new THREE.MeshBasicMaterial({
+    color: theme.rf,
+    transparent: true,
+    opacity: 0,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    toneMapped: false,
+  }), []);
+  const fsoPulseGeometry = useMemo(() => new THREE.CapsuleGeometry(0.008, 0.028, 3, 8), []);
+  const fsoPulseMaterial = useMemo(() => new THREE.MeshBasicMaterial({
+    color: fsoSignalColor,
+    transparent: true,
+    opacity: 0,
+    depthTest: true,
+    depthWrite: false,
+    toneMapped: false,
+  }), []);
   const rfConeGeometry = useMemo(() => {
     const geometry = new THREE.ConeGeometry(1, 1, 32, 1, true);
     geometry.translate(0, -0.5, 0);
     geometry.scale(1, -1, 1);
     return geometry;
   }, []);
-  useEffect(() => () => rfConeGeometry.dispose(), [rfConeGeometry]);
-  const rfWaveCount = 7;
-  const fsoPulseCount = 8;
+  useEffect(() => () => {
+    rfConeGeometry.dispose();
+    rfWaveGeometry.dispose();
+    rfWaveMaterial.dispose();
+    fsoPulseGeometry.dispose();
+    fsoPulseMaterial.dispose();
+  }, [fsoPulseGeometry, fsoPulseMaterial, rfConeGeometry, rfWaveGeometry, rfWaveMaterial]);
+  const rfWaveCount = 3;
+  const fsoPulseCount = 3;
 
   useFrame((_, delta) => {
-    if (playing) realTimeRef.current += delta;
+    const dt = Math.min(delta, 0.05);
+    if (playing) realTimeRef.current += dt;
     if (previousSelectionRef.current !== selectedLink) {
       fromRfOpacityRef.current = targetRfOpacityRef.current;
       targetRfOpacityRef.current = selectedLink === "RF" ? 1 : 0.45;
       transitionProgressRef.current = 0;
       previousSelectionRef.current = selectedLink;
     }
-    if (playing) transitionProgressRef.current = Math.min(1, transitionProgressRef.current + delta / 0.2);
+    if (playing) transitionProgressRef.current = Math.min(1, transitionProgressRef.current + dt / 0.2);
     const eased = transitionProgressRef.current * transitionProgressRef.current *
       (3 - 2 * transitionProgressRef.current);
     const rfSelection = THREE.MathUtils.lerp(
@@ -1077,18 +1187,12 @@ function LinkBeams({
     satellite.getWorldPosition(satellitePosition);
     station.getWorldPosition(stationPosition);
     earthCenter.getWorldPosition(target);
-    stationNormal.subVectors(stationPosition, target).normalize();
     direction.subVectors(satellitePosition, stationPosition);
     const linkVisible = linkTruthRef.current.visible;
-    const beamVisible = linkVisible || linkFadeRef.current > 0.001;
-    const fadeTarget = linkVisible ? 1 : 0;
-    const fadeDuration = fadeTarget > linkFadeRef.current ? 1.5 : 1;
-    linkFadeRef.current = THREE.MathUtils.lerp(
-    linkFadeRef.current,
-    fadeTarget,
-    Math.min(1, delta / fadeDuration),
-    );
-    const visibility = linkFadeRef.current;
+    const rfVisible = linkVisible && selectedLink === "RF";
+    const fsoVisible = linkVisible && selectedLink === "FSO";
+    const beamVisible = linkVisible;
+    const visibility = linkVisible ? 1 : 0;
     if (import.meta.env.DEV) {
       console.assert(
         !linkTruthRef.current.visible || beamVisible,
@@ -1096,7 +1200,7 @@ function LinkBeams({
       );
     }
     station.getWorldQuaternion(stationWorldQuaternion);
-    if (beamVisible) {
+    if (linkVisible) {
       direction.subVectors(satellitePosition, stationPosition).normalize();
       dishWorldQuaternion.setFromUnitVectors(UNIT_Y, direction);
       stationWorldQuaternion.invert();
@@ -1104,10 +1208,7 @@ function LinkBeams({
     } else {
       dishLocalQuaternion.identity();
     }
-    stationDish.quaternion.slerp(
-      dishLocalQuaternion,
-      1 - Math.exp(-delta / 0.15),
-    );
+    stationDish.quaternion.slerp(dishLocalQuaternion, 1 - Math.exp(-dt / 0.15));
     dishFeed.getWorldPosition(target);
 
     rfEmitter.lookAt(beamVisible ? target : earthCenter.getWorldPosition(target));
@@ -1123,7 +1224,7 @@ function LinkBeams({
     fsoDirection.normalize();
     fsoMidpoint.addVectors(fsoSource, target).multiplyScalar(0.5);
     if (rfBeamRef.current && rfConeRef.current) {
-      rfBeamRef.current.visible = beamVisible;
+      rfBeamRef.current.visible = rfVisible;
       rfBeamRef.current.position.copy(rfMidpoint);
       rfOrientation.setFromUnitVectors(UNIT_Y, rfDirection);
       rfBeamRef.current.quaternion.copy(rfOrientation);
@@ -1138,8 +1239,6 @@ function LinkBeams({
         const radius = Math.max(0.015, phase * 0.35);
         wave.position.set(0, rfLength * (phase - 0.5), 0);
         wave.scale.set(radius, radius, 1);
-        const material = wave.material;
-        if (material instanceof THREE.MeshBasicMaterial) material.opacity = visibility * rfIntensity * (1 - phase * 0.6);
       }
       for (let index = 0; index < rfWaveCount; index += 1) {
         const wave = uplinkWavefrontRefs.current[index];
@@ -1148,12 +1247,14 @@ function LinkBeams({
         const radius = Math.max(0.015, phase * 0.35);
         wave.position.set(0, rfLength * (0.5 - phase), 0);
         wave.scale.set(radius, radius, 1);
-        const material = wave.material;
-        if (material instanceof THREE.MeshBasicMaterial) material.opacity = visibility * rfIntensity * (1 - phase * 0.6);
+      }
+      const waveMaterial = wavefrontRefs.current[0]?.material;
+      if (waveMaterial instanceof THREE.MeshBasicMaterial) {
+        waveMaterial.opacity = visibility * rfIntensity;
       }
     }
     if (fsoBeamRef.current && fsoCoreRef.current && fsoGlowRef.current) {
-      fsoBeamRef.current.visible = beamVisible;
+      fsoBeamRef.current.visible = fsoVisible;
       fsoBeamRef.current.position.copy(fsoMidpoint);
       fsoOrientation.setFromUnitVectors(UNIT_Y, fsoDirection);
       fsoBeamRef.current.quaternion.copy(fsoOrientation);
@@ -1170,16 +1271,16 @@ function LinkBeams({
         if (!pulse) continue;
         const phase = (realTimeRef.current * 1.8 / fsoLength + index / fsoPulseCount) % 1;
         pulse.position.y = fsoLength * (phase - 0.5);
-        const pulseMaterial = pulse.material;
-        if (pulseMaterial instanceof THREE.MeshBasicMaterial) pulseMaterial.opacity = visibility * fsoIntensity;
       }
       for (let index = 0; index < fsoPulseCount; index += 1) {
         const pulse = uplinkPulseRefs.current[index];
         if (!pulse) continue;
         const phase = (realTimeRef.current * 1.8 / fsoLength + index / fsoPulseCount + 0.5) % 1;
         pulse.position.y = fsoLength * (0.5 - phase);
-        const pulseMaterial = pulse.material;
-        if (pulseMaterial instanceof THREE.MeshBasicMaterial) pulseMaterial.opacity = visibility * fsoIntensity;
+      }
+      const pulseMaterial = pulseRefs.current[0]?.material;
+      if (pulseMaterial instanceof THREE.MeshBasicMaterial) {
+        pulseMaterial.opacity = visibility * fsoIntensity;
       }
     }
 
@@ -1209,22 +1310,14 @@ function LinkBeams({
             }}
             rotation={[Math.PI / 2, 0, 0]}
           >
-            <torusGeometry args={[1, 0.007, 4, 36]} />
-            <meshBasicMaterial
-              color={theme.rf}
-              transparent
-              opacity={0}
-              depthTest
-              depthWrite={false}
-              blending={THREE.AdditiveBlending}
-              toneMapped={false}
-            />
+            <primitive object={rfWaveGeometry} attach="geometry" />
+            <primitive object={rfWaveMaterial} attach="material" />
           </mesh>
         ))}
         {Array.from({ length: rfWaveCount }, (_, index) => (
           <mesh key={`up-${index}`} ref={(mesh) => { uplinkWavefrontRefs.current[index] = mesh; }} rotation={[Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[1, 0.007, 4, 36]} />
-            <meshBasicMaterial color={theme.rf} transparent opacity={0} depthTest depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+            <primitive object={rfWaveGeometry} attach="geometry" />
+            <primitive object={rfWaveMaterial} attach="material" />
           </mesh>
         ))}
       </group>
@@ -1260,21 +1353,14 @@ function LinkBeams({
               pulseRefs.current[index] = mesh;
             }}
           >
-            <capsuleGeometry args={[0.008, 0.028, 3, 8]} />
-            <meshBasicMaterial
-              color={fsoSignalColor}
-              transparent
-              opacity={0}
-              depthTest
-              depthWrite={false}
-              toneMapped={false}
-            />
+            <primitive object={fsoPulseGeometry} attach="geometry" />
+            <primitive object={fsoPulseMaterial} attach="material" />
           </mesh>
         ))}
         {Array.from({ length: fsoPulseCount }, (_, index) => (
           <mesh key={`up-${index}`} ref={(mesh) => { uplinkPulseRefs.current[index] = mesh; }}>
-            <capsuleGeometry args={[0.008, 0.028, 3, 8]} />
-            <meshBasicMaterial color={fsoSignalColor} transparent opacity={0} depthTest depthWrite={false} toneMapped={false} />
+            <primitive object={fsoPulseGeometry} attach="geometry" />
+            <primitive object={fsoPulseMaterial} attach="material" />
           </mesh>
         ))}
       </group>
@@ -1282,22 +1368,41 @@ function LinkBeams({
   );
 }
 
+const MemoizedLinkBeams = memo(LinkBeams);
+
 function useSimClock(
   clockRef: SimClockRef,
-  onClockTick: (time: number) => void,
-  isVisible: boolean,
+  orbitTimeRef: RefObject<number>,
   autoSkip: boolean,
   passSamples: readonly ElevationSample[],
   onAutoSkip: (seconds: number) => void,
 ) {
-  const publishElapsedRef = useRef(0);
   const belowHorizonElapsedRef = useRef(0);
   const skipArmedRef = useRef(true);
+
+  const passStep = passSamples.length > 1 ? passSamples[1].time - passSamples[0].time : 30;
+  const isPassVisibleAt = (time: number) => {
+    const wrappedTime = ((time % SIMULATION_DAY_S) + SIMULATION_DAY_S) % SIMULATION_DAY_S;
+    const index = Math.min(passSamples.length - 1, Math.floor(wrappedTime / passStep));
+    const start = passSamples[index]?.elevation ?? -90;
+    const end = passSamples[Math.min(index + 1, passSamples.length - 1)]?.elevation ?? start;
+    const fraction = (wrappedTime - index * passStep) / passStep;
+    return THREE.MathUtils.lerp(start, end, fraction) >= MASK_ELEVATION_DEG;
+  };
+
   useFrame((_, delta) => {
-    const safeDelta = Math.min(delta, 0.1);
+    const dt = Math.min(delta, 0.05);
     if (!clockRef.current.playing) return;
-    clockRef.current.t =
-      (clockRef.current.t + safeDelta * clockRef.current.speed * 60) % SIMULATION_DAY_S;
+    let remaining = dt * clockRef.current.speed;
+    while (remaining > 0) {
+      const simulatedStep = Math.min(remaining, 1);
+      orbitTimeRef.current += simulatedStep;
+      clockRef.current.t =
+        (clockRef.current.t + simulatedStep) % SIMULATION_DAY_S;
+      remaining -= simulatedStep;
+    }
+
+    const isVisible = isPassVisibleAt(clockRef.current.t);
     if (!autoSkip) {
       belowHorizonElapsedRef.current = 0;
       skipArmedRef.current = true;
@@ -1305,18 +1410,17 @@ function useSimClock(
       belowHorizonElapsedRef.current = 0;
       skipArmedRef.current = true;
     } else if (skipArmedRef.current) {
-      belowHorizonElapsedRef.current += safeDelta;
+      belowHorizonElapsedRef.current += dt;
       if (belowHorizonElapsedRef.current >= 3) {
         const nextPass = getNextPassTime(clockRef.current.t, passSamples);
         if (nextPass !== null) {
-          const timeToPass = nextPass - clockRef.current.t;
           const lead = 20;
-          if (timeToPass > lead) {
+          if (nextPass - clockRef.current.t > lead) {
             const destination = nextPass - lead;
             const skipped = destination - clockRef.current.t;
             if (skipped > 0) {
               clockRef.current.t = destination % SIMULATION_DAY_S;
-              onClockTick(clockRef.current.t);
+              orbitTimeRef.current += skipped;
               onAutoSkip(skipped);
             }
           }
@@ -1325,17 +1429,21 @@ function useSimClock(
         skipArmedRef.current = false;
       }
     }
-    publishElapsedRef.current += safeDelta;
-    if (publishElapsedRef.current >= 0.1) {
-      publishElapsedRef.current = 0;
-      onClockTick(clockRef.current.t);
-    }
   }, -3);
 }
 
-function ConstellationDots({ clockRef, visible, servingSatelliteId = 1 }: { clockRef: SimClockRef; visible: boolean; servingSatelliteId?: number }) {
+function ConstellationDots({
+  orbitTimeRef,
+  visible,
+  linkTruthRef,
+}: {
+  orbitTimeRef: RefObject<number>;
+  visible: boolean;
+  linkTruthRef: LinkTruthRef;
+}) {
   const pointsRef = useRef<THREE.Points>(null);
   const positions = useMemo(() => new Float32Array(WALKER_TOTAL_SATS * 3), []);
+  const positionScratch = useMemo(() => new THREE.Vector3(), []);
   const geometry = useMemo(() => {
     const value = new THREE.BufferGeometry();
     value.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -1343,25 +1451,25 @@ function ConstellationDots({ clockRef, visible, servingSatelliteId = 1 }: { cloc
   }, [positions]);
   useEffect(() => () => geometry.dispose(), [geometry]);
   useFrame(() => {
-    if (!pointsRef.current || !visible) return;
+    if (!visible || !pointsRef.current) return;
     const values = geometry.getAttribute("position").array as Float32Array;
     for (let id = 0; id < WALKER_TOTAL_SATS; id += 1) {
       const plane = Math.floor(id / WALKER_SATS_PER_PLANE);
       const satellite = id % WALKER_SATS_PER_PLANE;
       const anomaly =
-        (2 * Math.PI * clockRef.current.t) / ORBIT_PERIOD_S +
+        (2 * Math.PI * orbitTimeRef.current) / ORBIT_PERIOD_S +
         (satellite * 2 * Math.PI) / WALKER_SATS_PER_PLANE +
         (plane * 2 * Math.PI) / WALKER_TOTAL_SATS;
-      const position = getDisplayPosition(plane, anomaly);
+      setOrbitPosition(positionScratch, plane, anomaly, DISPLAY_ORBIT_RADIUS);
       const offset = id * 3;
-      if (id + 1 === servingSatelliteId) {
+      if (id + 1 === linkTruthRef.current.satelliteId) {
         values[offset] = 0;
         values[offset + 1] = 0;
         values[offset + 2] = 0;
       } else {
-        values[offset] = position[0];
-        values[offset + 1] = position[1];
-        values[offset + 2] = position[2];
+        values[offset] = positionScratch.x;
+        values[offset + 1] = positionScratch.y;
+        values[offset + 2] = positionScratch.z;
       }
     }
 
@@ -1370,26 +1478,26 @@ function ConstellationDots({ clockRef, visible, servingSatelliteId = 1 }: { cloc
   return <points ref={pointsRef} geometry={geometry}><pointsMaterial color="#BFD4FF" size={2} sizeAttenuation={false} transparent opacity={0.55} depthTest depthWrite={false} /></points>;
 }
 
+const MemoizedConstellationDots = memo(ConstellationDots);
+
 function SceneContents({
   selectedLink,
   cloudAttenuationDb,
   cameraView,
   htmlPortal,
   clockRef,
-  onClockTick,
+  orbitTimeRef,
   passSamples,
   autoSkip,
   onAutoSkip,
-  isVisible,
   playing,
   controlsEnabled,
   stageHeight,
   onLinkTruth,
   constellationMode,
-  servingSatelliteId = 1,
   showConstellation = true,
   onCameraManual,
-}: SceneProps & { isVisible: boolean }) {
+}: SceneProps) {
   const stationRef = useRef<THREE.Group>(null);
   const stationDishRef = useRef<THREE.Group>(null);
   const dishFeedRef = useRef<THREE.Group>(null);
@@ -1405,10 +1513,10 @@ function SceneContents({
     satelliteId: 1,
     inViewCount: 0,
   });
-  useSimClock(clockRef, onClockTick, isVisible, autoSkip, passSamples, onAutoSkip);
+  useSimClock(clockRef, orbitTimeRef, autoSkip, passSamples, onAutoSkip);
   useFrame(() => {
     if (earthGroupRef.current) {
-      earthGroupRef.current.rotation.y = EARTH_ROTATION_RAD_S * clockRef.current.t;
+      earthGroupRef.current.rotation.y = EARTH_ROTATION_RAD_S * orbitTimeRef.current;
     }
   }, -3);
 
@@ -1436,8 +1544,12 @@ function SceneContents({
             />
           </Suspense>
         </group>
-        <ConstellationDots clockRef={clockRef} visible={constellationMode && showConstellation} servingSatelliteId={servingSatelliteId} />
-        <SatelliteModel
+        <MemoizedConstellationDots
+          orbitTimeRef={orbitTimeRef}
+          visible={constellationMode && showConstellation}
+          linkTruthRef={linkTruthRef}
+        />
+        <MemoizedSatelliteModel
           selectedLink={selectedLink}
           stationRef={stationRef}
           earthCenterRef={earthCenterRef}
@@ -1445,13 +1557,13 @@ function SceneContents({
           rfEmitterRef={rfEmitterRef}
           fsoEmitterRef={fsoEmitterRef}
           htmlPortal={htmlPortal}
-          clockRef={clockRef}
+          orbitTimeRef={orbitTimeRef}
           linkTruthRef={linkTruthRef}
           onLinkTruth={onLinkTruth}
           constellationMode={constellationMode}
         />
       </group>
-      <LinkBeams
+      <MemoizedLinkBeams
         selectedLink={selectedLink}
         stationRef={stationRef}
         stationDishRef={stationDishRef}
@@ -1482,17 +1594,15 @@ export default function SatelliteScene({
   cameraView,
   htmlPortal,
   clockRef,
-  onClockTick,
+  orbitTimeRef,
   passSamples,
   autoSkip,
   onAutoSkip,
-  isVisible,
   playing,
   controlsEnabled,
   stageHeight,
   onLinkTruth,
   constellationMode,
-  servingSatelliteId = 1,
   showConstellation = true,
   onCameraManual,
 }: SceneProps) {
@@ -1509,7 +1619,7 @@ export default function SatelliteScene({
       camera={{ position: [0, -1.58, 6.5], fov: 45 }}
       dpr={[1, 1.5]}
       frameloop={pageVisible ? "always" : "never"}
-      gl={{ antialias: true, alpha: false }}
+      gl={{ antialias: true, powerPreference: "high-performance" }}
     >
       <SceneContents
         selectedLink={selectedLink}
@@ -1517,17 +1627,15 @@ export default function SatelliteScene({
         cameraView={cameraView}
         htmlPortal={htmlPortal}
         clockRef={clockRef}
-        onClockTick={onClockTick}
+        orbitTimeRef={orbitTimeRef}
         passSamples={passSamples}
         autoSkip={autoSkip}
         onAutoSkip={onAutoSkip}
-        isVisible={isVisible}
         playing={playing}
         controlsEnabled={controlsEnabled}
         stageHeight={stageHeight}
         onLinkTruth={onLinkTruth}
         constellationMode={constellationMode}
-        servingSatelliteId={servingSatelliteId}
         showConstellation={showConstellation}
         onCameraManual={onCameraManual}
       />

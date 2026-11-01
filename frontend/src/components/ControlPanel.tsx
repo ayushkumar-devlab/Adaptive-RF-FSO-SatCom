@@ -1,5 +1,21 @@
+import { useState } from "react";
 import type { ChannelInputs } from "../types";
 import { Panel } from "./Panel";
+
+const scenarios = {
+  clearSky: {
+    rf_snr_db: 5,
+    fso_snr_db: 25,
+    atmospheric_loss_db: 2,
+    cloud_attenuation_db: 1,
+  },
+  cloudy: {
+    rf_snr_db: 20,
+    fso_snr_db: 12,
+    atmospheric_loss_db: 6,
+    cloud_attenuation_db: 8,
+  },
+} satisfies Record<string, ChannelInputs>;
 
 const controls = [
   {
@@ -43,6 +59,27 @@ export function ControlPanel({
   onInputChange,
   onReset,
 }: ControlPanelProps) {
+  const [activeScenario, setActiveScenario] = useState<keyof typeof scenarios | null>(null);
+
+  const applyScenario = (scenario: keyof typeof scenarios) => {
+    setActiveScenario(scenario);
+    const values = scenarios[scenario];
+    onInputChange("rf_snr_db", values.rf_snr_db);
+    onInputChange("fso_snr_db", values.fso_snr_db);
+    onInputChange("atmospheric_loss_db", values.atmospheric_loss_db);
+    onInputChange("cloud_attenuation_db", values.cloud_attenuation_db);
+  };
+
+  const handleInputChange = (key: keyof ChannelInputs, value: number) => {
+    setActiveScenario(null);
+    onInputChange(key, value);
+  };
+
+  const reset = () => {
+    setActiveScenario(null);
+    onReset();
+  };
+
   return (
     <section className="page-section" id="controls">
       <Panel
@@ -50,6 +87,36 @@ export function ControlPanel({
         description="Move a slider and the trained model re-picks the link."
         className="controls-panel"
       >
+        <div className="scenario-options">
+          <div className="scenario-actions" role="group" aria-label="Scenario presets">
+            <button
+              className={`scenario-btn scenario-clear${activeScenario === "clearSky" ? " scenario-selected" : ""}`}
+              type="button"
+              aria-pressed={activeScenario === "clearSky"}
+              onClick={() => applyScenario("clearSky")}
+            >
+              <svg className="scenario-icon scenario-icon-clear" aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <circle cx="8" cy="8" r="3" fill="currentColor" />
+                <path d="M8 1.25v2M8 12.75v2M1.25 8h2m9.5 0h2M3.23 3.23l1.42 1.42m6.7 6.7 1.42 1.42m0-9.54-1.42 1.42m-6.7 6.7-1.42 1.42" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+              </svg>
+              <span>Clear sky</span>
+            </button>
+            <button
+              className={`scenario-btn scenario-cloudy${activeScenario === "cloudy" ? " scenario-selected" : ""}`}
+              type="button"
+              aria-pressed={activeScenario === "cloudy"}
+              onClick={() => applyScenario("cloudy")}
+            >
+              <svg className="scenario-icon scenario-icon-cloudy" aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M4.15 12.5h7.1a2.45 2.45 0 0 0 .23-4.89 3.7 3.7 0 0 0-7.03-.42A2.68 2.68 0 0 0 4.15 12.5Z" fill="currentColor" />
+              </svg>
+              <span>Cloudy</span>
+            </button>
+          </div>
+          <p className="scenario-hint">
+            The model picks FSO when FSO SNR − atmospheric loss − cloud attenuation is above RF SNR.
+          </p>
+        </div>
         <div className="controls-list">
           {controls.map(({ key, label, unit, min, max }) => {
             const value = inputs[key];
@@ -71,11 +138,11 @@ export function ControlPanel({
                       onChange={(event) => {
                         const nextValue = Number(event.currentTarget.value);
                         if (Number.isFinite(nextValue)) {
-                          onInputChange(key, Math.min(max, Math.max(min, nextValue)));
+                          handleInputChange(key, Math.min(max, Math.max(min, nextValue)));
                         }
                       }}
                     />
-                    <span>{unit}</span>
+                    <span className="control-unit">{unit}</span>
                   </div>
                 </div>
                 <input
@@ -89,7 +156,7 @@ export function ControlPanel({
                   style={{ background: `linear-gradient(to right, var(--slider-fill) ${fill}%, var(--range-track) ${fill}%)` }}
                   aria-valuetext={`${value} ${unit}`}
                   onChange={(event) =>
-                    onInputChange(key, Number(event.currentTarget.value))
+                    handleInputChange(key, Number(event.currentTarget.value))
                   }
                 />
                 <div className="range-labels">
@@ -100,7 +167,7 @@ export function ControlPanel({
             );
           })}
         </div>
-        <button className="button primary" type="button" onClick={onReset}>
+        <button className="button primary" type="button" onClick={reset}>
           Reset sliders
         </button>
       </Panel>

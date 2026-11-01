@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ControlPanel } from "./components/ControlPanel";
 import { getInitialSimulationTime } from "./sim/orbit";
 import { health, predict } from "./api";
@@ -39,16 +39,15 @@ export default function App() {
   const [activeSection, setActiveSection] = useState("simulator");
   const [clockInitial] = useState(() => ({
     t: getInitialSimulationTime(),
-    speed: 0.25,
+    speed: 100,
     playing: !prefersReducedMotion(),
   }));
   const clockRef = useRef(clockInitial);
-  const [clockTime, setClockTime] = useState(clockInitial.t);
   const [linkUp, setLinkUp] = useState(false);
 
   useEffect(() => {
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.board);
-    document.title = "Machine Learning-Based Adaptive RF–FSO Switching for Satellite Communication";
+    document.title = "Adaptive RF–FSO Switching | Satellite Communication";
   }, []);
 
   useEffect(() => {
@@ -111,7 +110,6 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
-  const onClockTick = useCallback((time: number) => setClockTime(time), []);
   const updateInput = (key: keyof ChannelInputs, value: number) => {
     setInputs((previous) => ({ ...previous, [key]: value }));
   };
@@ -128,10 +126,8 @@ export default function App() {
         prediction={prediction}
         confidence={confidence}
         clockRef={clockRef}
-        clockTime={clockTime}
+        initialTime={clockInitial.t}
         initialPlaying={clockInitial.playing}
-        onClockTick={onClockTick}
-        onClockSet={setClockTime}
         activeSection={activeSection}
         navigation={navigation}
         onNavigate={scrollToSection}

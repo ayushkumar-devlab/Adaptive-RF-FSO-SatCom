@@ -4,6 +4,7 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  LabelList,
   Line,
   LineChart,
   Area,
@@ -91,14 +92,14 @@ export function Results({
           </div>
           {sweepError && <p className="chart-error" role="alert">{sweepError}</p>}
           {sweep.length > 0 ? (
-            <div className="chart-wrap" role="img" aria-label="Model confidence across RF SNR sweep">
+            <div className="chart-wrap model-sweep-chart" role="img" aria-label="Model confidence across RF SNR sweep">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={sweep} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+                <LineChart data={sweep} margin={{ top: 8, right: 16, left: 0, bottom: 28 }}>
                   <CartesianGrid stroke={theme.chartGrid} />
-                  <XAxis dataKey="rf_snr_db" type="number" domain={[-5, 30]} tick={{ fill: theme.inkMuted, fontSize: 12 }} label={{ value: "RF SNR (dB)", position: "insideBottom", offset: -4, fill: theme.inkMuted }} />
+                  <XAxis dataKey="rf_snr_db" type="number" domain={[-5, 30]} ticks={[-5, 0, 5, 10, 15, 20, 25, 30]} height={30} tick={{ fill: theme.inkMuted, fontSize: 12 }} label={{ value: "RF SNR (dB)", position: "insideBottom", offset: -4, fill: theme.inkMuted }} />
                   <YAxis tick={{ fill: theme.inkMuted, fontSize: 12 }} unit="%" />
                   <Tooltip contentStyle={{ background: theme.surfaceStrong, border: `1px solid ${theme.border}`, borderRadius: 12, color: theme.text }} />
-                  <Legend />
+                  <Legend verticalAlign="bottom" align="center" wrapperStyle={{ paddingTop: 14 }} iconType="plainline" />
                   {sweepLabels.map((label) => (
                     <Line key={label} type="monotone" dataKey={label} name={`${label} probability`} stroke={lineColor(label)} strokeWidth={2} strokeDasharray={label === "FSO" ? "6 4" : undefined} dot />
                   ))}
@@ -110,15 +111,29 @@ export function Results({
           )}
         </Panel>
         <Panel title="Strategy comparison" className="chart-card">
-          <p>Source: README §6 · synthetic dataset</p>
-          <div className="chart-wrap" role="img" aria-label="README section 6 mean theoretical BER by strategy">
+          <p>Source: Project README – Strategy Comparison | Synthetic Dataset</p>
+          <div className="chart-wrap" role="img" aria-label="Mean theoretical BER by strategy">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={berResults} margin={{ top: 8, right: 12, bottom: 8, left: 16 }}>
+              <BarChart data={berResults} margin={{ top: 24, right: 12, bottom: 8, left: 16 }}>
                 <CartesianGrid stroke={theme.chartGrid} />
                 <XAxis dataKey="strategy" tick={{ fill: theme.inkMuted, fontSize: 12 }} />
-                <YAxis scale="log" domain={["dataMin", "dataMax"]} tick={{ fill: theme.inkMuted, fontSize: 12 }} />
+                <YAxis
+                  type="number"
+                  scale="linear"
+                  domain={[0, 0.15]}
+                  ticks={[0, 0.03, 0.06, 0.09, 0.12, 0.15]}
+                  tick={{ fill: theme.inkMuted, fontSize: 12 }}
+                />
                 <Tooltip contentStyle={{ background: theme.surfaceStrong, border: `1px solid ${theme.border}`, borderRadius: 12, color: theme.text }} />
-                <Bar dataKey="ber" name="Mean theoretical BER" fill={theme.inkMuted} />
+                <Bar dataKey="ber" name="Mean theoretical BER" fill={theme.rf} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                  <LabelList
+                    dataKey="ber"
+                    position="top"
+                    formatter={(value) => Number(value).toFixed(6)}
+                    fill={theme.inkMuted}
+                    fontSize={10}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
