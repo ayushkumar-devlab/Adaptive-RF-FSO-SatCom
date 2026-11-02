@@ -95,11 +95,7 @@ export function ControlPanel({
               aria-pressed={activeScenario === "clearSky"}
               onClick={() => applyScenario("clearSky")}
             >
-              <svg className="scenario-icon scenario-icon-clear" aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none">
-                <circle cx="8" cy="8" r="3" fill="currentColor" />
-                <path d="M8 1.25v2M8 12.75v2M1.25 8h2m9.5 0h2M3.23 3.23l1.42 1.42m6.7 6.7 1.42 1.42m0-9.54-1.42 1.42m-6.7 6.7-1.42 1.42" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
-              </svg>
-              <span>Clear sky</span>
+              Clear sky
             </button>
             <button
               className={`scenario-btn scenario-cloudy${activeScenario === "cloudy" ? " scenario-selected" : ""}`}
@@ -107,14 +103,11 @@ export function ControlPanel({
               aria-pressed={activeScenario === "cloudy"}
               onClick={() => applyScenario("cloudy")}
             >
-              <svg className="scenario-icon scenario-icon-cloudy" aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none">
-                <path d="M4.15 12.5h7.1a2.45 2.45 0 0 0 .23-4.89 3.7 3.7 0 0 0-7.03-.42A2.68 2.68 0 0 0 4.15 12.5Z" fill="currentColor" />
-              </svg>
-              <span>Cloudy</span>
+              Cloudy
             </button>
           </div>
           <p className="scenario-hint">
-            The model picks FSO when FSO SNR − atmospheric loss − cloud attenuation is above RF SNR.
+            The model picks FSO when its SNR, after the atmospheric and cloud losses, still beats the RF SNR. Otherwise, RF.
           </p>
         </div>
         <div className="controls-list">

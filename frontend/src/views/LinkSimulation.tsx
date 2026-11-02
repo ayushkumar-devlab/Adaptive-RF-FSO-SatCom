@@ -262,6 +262,14 @@ export function LinkSimulation({
       return false;
     }
   });
+  const [sidePanelsVisible, setSidePanelsVisible] = useState(() => {
+    try {
+      return window.localStorage.getItem("satcom-side-panels-visible") !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const [sidePanelsHidden, setSidePanelsHidden] = useState(() => !sidePanelsVisible);
   const [howOpen, setHowOpen] = useState(() => window.innerHeight >= 860);
   const [skipToast, setSkipToast] = useState<string | null>(null);
   const passSamples = useMemo(() => createPassSamples(), []);
@@ -269,6 +277,7 @@ export function LinkSimulation({
   const passes = useMemo(() => findPasses(passSamples, MASK_ELEVATION_DEG), [passSamples]);
   const scenePortalRef = useRef<HTMLDivElement>(null!);
   const consoleRef = useRef<HTMLElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLElement>(null);
   const [consoleInView, setConsoleInView] = useState(true);
   const [stageHeight, setStageHeight] = useState(560);
@@ -346,11 +355,11 @@ export function LinkSimulation({
   }, []);
 
   useEffect(() => {
-    const dock = dockRef.current;
-    if (!dock) return;
-    const updateStageHeight = () => setStageHeight(Math.max(1, window.innerHeight - dock.getBoundingClientRect().height - 16));
+    const stage = stageRef.current;
+    if (!stage) return;
+    const updateStageHeight = () => setStageHeight(Math.max(1, stage.getBoundingClientRect().height));
     const observer = new ResizeObserver(updateStageHeight);
-    observer.observe(dock);
+    observer.observe(stage);
     updateStageHeight();
     return () => observer.disconnect();
   }, []);
@@ -362,6 +371,24 @@ export function LinkSimulation({
       // Storage can be unavailable in private browsing.
     }
   }, [controlsExpanded]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("satcom-side-panels-visible", String(sidePanelsVisible));
+    } catch {
+      // Storage can be unavailable in private browsing.
+    }
+  }, [sidePanelsVisible]);
+
+  useEffect(() => {
+    if (sidePanelsVisible) {
+      setSidePanelsHidden(false);
+      return;
+    }
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200;
+    const timer = window.setTimeout(() => setSidePanelsHidden(true), delay);
+    return () => window.clearTimeout(timer);
+  }, [sidePanelsVisible]);
 
   useEffect(() => {
     if (!controlsExpanded) return;
@@ -385,6 +412,17 @@ export function LinkSimulation({
     return () => window.removeEventListener("keydown", handleSpace);
   }, [clockRef, setPlayback]);
 
+  useEffect(() => {
+    const handlePanelsShortcut = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "h" || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))) return;
+      setSidePanelsVisible((visible) => !visible);
+    };
+    window.addEventListener("keydown", handlePanelsShortcut);
+    return () => window.removeEventListener("keydown", handlePanelsShortcut);
+  }, []);
+
   const togglePlayback = () => {
     setPlayback(!clockRef.current.playing);
   };
@@ -406,36 +444,12 @@ export function LinkSimulation({
 
   return (
     <>
-      <div className="scene-canvas-layer" aria-hidden="true">
-        <div ref={scenePortalRef} className="scene-portal" />
-        <SceneErrorBoundary>
-          <Suspense fallback={<div className="scene-placeholder" role="status" aria-live="polite">Loading 3D satellite scene…</div>}>
-            <SatelliteScene
-              selectedLink={selected}
-              cloudAttenuationDb={inputs.cloud_attenuation_db}
-              cameraView={cameraView}
-              htmlPortal={scenePortalRef}
-              clockRef={clockRef}
-              orbitTimeRef={orbitTimeRef}
-              passSamples={passSamples}
-              autoSkip={autoSkip}
-              onAutoSkip={onAutoSkip}
-              constellationMode={constellationMode}
-              showConstellation={showConstellation}
-              playing={playing}
-              controlsEnabled={consoleInView}
-              stageHeight={stageHeight}
-              onLinkTruth={handleLinkTruth}
-              onCameraManual={setCameraManual}
-            />
-          </Suspense>
-        </SceneErrorBoundary>
-      </div>
       <section ref={consoleRef} className="console" id="simulator">
         <header className="console-header">
           <h1 className="site-title" title="Machine Learning-Based Adaptive RF–FSO Switching for Satellite Communication">
-            <span>ML-Based Adaptive RF–FSO Switching</span>
-            <small>for Satellite Communication</small>
+            <span>ML-Based Adaptive</span>
+            <span>RF–FSO Switching</span>
+            <small>For satellite communication</small>
           </h1>
           <nav className="pill-nav" aria-label="Page sections">
             {navigation.map(([id, label]) => (
@@ -445,17 +459,132 @@ export function LinkSimulation({
             ))}
           </nav>
         </header>
-        <aside className="console-left">{controls}</aside>
-        <div className="console-stage" aria-label="Interactive satellite link scene" />
-        <aside className="console-right">
+        <aside
+          className={`console-left side-panels side-panels-left${sidePanelsVisible ? "" : " is-hiding"}`}
+          aria-hidden={sidePanelsHidden}
+          inert={!sidePanelsVisible}
+        >
+          {controls}
+        </aside>
+        <div ref={stageRef} className="console-stage" aria-label="Interactive satellite link scene">
+          <div className="scene-canvas-layer" aria-hidden="true">
+            <div ref={scenePortalRef} className="scene-portal" />
+            <SceneErrorBoundary>
+              <Suspense fallback={<div className="scene-placeholder" role="status" aria-live="polite">Loading 3D satellite scene…</div>}>
+                <SatelliteScene
+                  selectedLink={selected}
+                  cloudAttenuationDb={inputs.cloud_attenuation_db}
+                  cameraView={cameraView}
+                  htmlPortal={scenePortalRef}
+                  clockRef={clockRef}
+                  orbitTimeRef={orbitTimeRef}
+                  passSamples={passSamples}
+                  autoSkip={autoSkip}
+                  onAutoSkip={onAutoSkip}
+                  constellationMode={constellationMode}
+                  showConstellation={showConstellation}
+                  playing={playing}
+                  controlsEnabled={consoleInView}
+                  stageHeight={stageHeight}
+                  onLinkTruth={handleLinkTruth}
+                  onCameraManual={setCameraManual}
+                />
+              </Suspense>
+            </SceneErrorBoundary>
+          </div>
+          <footer ref={dockRef} className="playback-dock">
+            <div className="compact-controls">
+              <div className="compact-control-row">
+                <button type="button" className="playback-round" aria-label={playing ? "Pause simulation" : "Play simulation"} onClick={togglePlayback}>{playing ? "Pause" : "Play"}</button>
+                <div className="speed-stepper" role="group" aria-label="Simulation speed">
+                  <button type="button" aria-label="Previous speed" onClick={() => {
+                    const index = speedOptions.indexOf(speed);
+                    const next = speedOptions[(index - 1 + speedOptions.length) % speedOptions.length] as Speed;
+                    clockRef.current.speed = next;
+                    setSpeed(next);
+                  }}>◀</button>
+                  <strong>×{speed}</strong>
+                  <button type="button" aria-label="Next speed" onClick={() => {
+                    const index = speedOptions.indexOf(speed);
+                    const next = speedOptions[(index + 1) % speedOptions.length] as Speed;
+                    clockRef.current.speed = next;
+                    setSpeed(next);
+                  }}>▶</button>
+                </div>
+                <PlaybackTimeline
+                  clockRef={clockRef}
+                  initialTime={initialTime}
+                  passes={passes}
+                  onSeek={seekSimulation}
+                  onScrubStart={beginScrubbing}
+                  onScrubEnd={endScrubbing}
+                />
+                <button type="button" className="next-pass-button" onClick={jumpToPass}>{constellationMode ? "Next handover" : "Next pass"}</button>
+                <button type="button" className="controls-toggle" aria-expanded={controlsExpanded} aria-controls="expanded-controls" onClick={() => setControlsExpanded((expanded) => !expanded)}>Controls <span aria-hidden="true">{controlsExpanded ? "⌃" : "⌄"}</span></button>
+              </div>
+              <LinkTruthDisplay
+                handlerRef={linkTruthHandlerRef}
+                initialTruth={initialTruth}
+                constellationMode={constellationMode}
+                selected={selected}
+                onLinkVisibility={reportLinkVisibility}
+              />
+            </div>
+            {controlsExpanded && <div id="expanded-controls" className="expanded-controls">
+              <label className="dock-toggle side-panels-toggle">
+                <input type="checkbox" checked={!sidePanelsVisible} onChange={(event) => setSidePanelsVisible(!event.currentTarget.checked)} />
+                {sidePanelsVisible ? "Hide side panels" : "Show side panels"}
+                <kbd aria-hidden="true">H</kbd>
+              </label>
+              <div className="expanded-group">
+                <strong>View</strong>
+                <div className="dock-views" role="group" aria-label="Camera views">
+                  {([
+                    ["orbit", "Orbit"],
+                    ["ground", "Ground station"],
+                    ["follow", "Follow satellite"],
+                    ["overview", "Overview"],
+                  ] as const).map(([view, label]) => (
+                    <button type="button" key={view} aria-label={label} aria-pressed={cameraView === view} className={cameraView === view ? "active" : ""} onClick={() => setCameraView(view)}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="expanded-group">
+                <strong>Speed</strong>
+                <div className="speed-control" role="group" aria-label="Simulation speed">
+                  {speedOptions.map((speedOption) => (
+                    <button type="button" key={speedOption} aria-pressed={speedOption === speed} className={speedOption === speed ? "active" : ""} onClick={() => { clockRef.current.speed = speedOption; setSpeed(speedOption); }}>{`×${speedOption}`}</button>
+                  ))}
+                </div>
+                <span className="speed-helper">1 orbit = {Number((5730 / speed).toFixed(1))} s real time</span>
+              </div>
+              <div className="expanded-group expanded-options">
+                <strong>Options</strong>
+                <label className="dock-toggle"><input type="checkbox" checked={showConstellation} onChange={(event) => setShowConstellation(event.currentTarget.checked)} />Show constellation</label>
+                <label className="skip-toggle"><input type="checkbox" checked={autoSkip} onChange={(event) => setAutoSkip(event.currentTarget.checked)} />Skip to next pass</label>
+              </div>
+              <div className="expanded-group">
+                <strong>Satellites: <button type="button" onClick={() => setConstellationMode(false)} aria-pressed={!constellationMode}>Single</button> | <button type="button" onClick={() => setConstellationMode(true)} aria-pressed={constellationMode}>Constellation</button></strong>
+              </div>
+            </div>}
+            {skipToast && <span className="skip-toast" role="status">{skipToast}</span>}
+          </footer>
+        </div>
+        <aside
+          className={`console-right side-panels side-panels-right${sidePanelsVisible ? "" : " is-hiding"}`}
+          aria-hidden={sidePanelsHidden}
+          inert={!sidePanelsVisible}
+        >
           <Panel title="Model decision" className={`decision-panel${apiStatus === "offline" ? " stale" : ""}`}>
             <p className="decision-sentence">The model picks {selected}.</p>
-            <p className="decision-summary">
-              {prediction && rfProbability !== undefined && fsoProbability !== undefined
-                ? `${rfProbability.toFixed(1)}% probability for RF · ${fsoProbability.toFixed(1)}% for FSO`
-                : predictionError ?? "Waiting for the prediction response."}
-            </p>
-            <p className="decision-summary">Theory check: {theorySelection} (FSO effective {theoryEffectiveFso.toFixed(1)} dB)</p>
+            <div className="decision-metrics">
+              <p className="decision-summary">
+                {prediction && rfProbability !== undefined && fsoProbability !== undefined
+                  ? `${rfProbability.toFixed(1)}% probability for RF · ${fsoProbability.toFixed(1)}% for FSO`
+                  : predictionError ?? "Waiting for the prediction response."}
+              </p>
+              <p className="decision-summary">Theory check: {theorySelection} (FSO effective {theoryEffectiveFso.toFixed(1)} dB)</p>
+            </div>
             {(["RF", "FSO"] as const).map((link) => {
               const probability = link === "RF" ? rfProbability : fsoProbability;
               const value = link === "RF" ? inputs.rf_snr_db : inputs.fso_snr_db;
@@ -491,78 +620,6 @@ export function LinkSimulation({
             </details>
           </Panel>
         </aside>
-        <footer ref={dockRef} className="playback-dock">
-          <div className="compact-controls">
-            <div className="compact-control-row">
-              <button type="button" className="playback-round" aria-label={playing ? "Pause simulation" : "Play simulation"} onClick={togglePlayback}>{playing ? "Pause" : "Play"}</button>
-              <div className="speed-stepper" role="group" aria-label="Simulation speed">
-                <button type="button" aria-label="Previous speed" onClick={() => {
-                  const index = speedOptions.indexOf(speed);
-                  const next = speedOptions[(index - 1 + speedOptions.length) % speedOptions.length] as Speed;
-                  clockRef.current.speed = next;
-                  setSpeed(next);
-                }}>◀</button>
-                <strong>×{speed}</strong>
-                <button type="button" aria-label="Next speed" onClick={() => {
-                  const index = speedOptions.indexOf(speed);
-                  const next = speedOptions[(index + 1) % speedOptions.length] as Speed;
-                  clockRef.current.speed = next;
-                  setSpeed(next);
-                }}>▶</button>
-              </div>
-            <PlaybackTimeline
-              clockRef={clockRef}
-              initialTime={initialTime}
-              passes={passes}
-              onSeek={seekSimulation}
-              onScrubStart={beginScrubbing}
-              onScrubEnd={endScrubbing}
-            />
-            <button type="button" className="next-pass-button" onClick={jumpToPass}>{constellationMode ? "Next handover" : "Next pass"}</button>
-            <button type="button" className="controls-toggle" aria-expanded={controlsExpanded} aria-controls="expanded-controls" onClick={() => setControlsExpanded((expanded) => !expanded)}>Controls <span aria-hidden="true">{controlsExpanded ? "⌃" : "⌄"}</span></button>
-            </div>
-            <LinkTruthDisplay
-              handlerRef={linkTruthHandlerRef}
-              initialTruth={initialTruth}
-              constellationMode={constellationMode}
-              selected={selected}
-              onLinkVisibility={reportLinkVisibility}
-            />
-          </div>
-          {controlsExpanded && <div id="expanded-controls" className="expanded-controls">
-            <div className="expanded-group">
-            <strong>View</strong>
-            <div className="dock-views" role="group" aria-label="Camera views">
-              {([
-                ["orbit", "Orbit"],
-                ["ground", "Ground station"],
-                ["follow", "Follow satellite"],
-                ["overview", "Overview"],
-              ] as const).map(([view, label]) => (
-                <button type="button" key={view} aria-label={label} aria-pressed={cameraView === view} className={cameraView === view ? "active" : ""} onClick={() => setCameraView(view)}>{label}</button>
-              ))}
-            </div>
-            </div>
-            <div className="expanded-group">
-            <strong>Speed</strong>
-            <div className="speed-control" role="group" aria-label="Simulation speed">
-              {speedOptions.map((speedOption) => (
-                <button type="button" key={speedOption} aria-pressed={speedOption === speed} className={speedOption === speed ? "active" : ""} onClick={() => { clockRef.current.speed = speedOption; setSpeed(speedOption); }}>{`×${speedOption}`}</button>
-              ))}
-            </div>
-            <span className="speed-helper">1 orbit = {Number((5730 / speed).toFixed(1))} s real time</span>
-            </div>
-            <div className="expanded-group expanded-options">
-            <strong>Options</strong>
-            <label className="dock-toggle"><input type="checkbox" checked={showConstellation} onChange={(event) => setShowConstellation(event.currentTarget.checked)} />Show constellation</label>
-            <label className="skip-toggle"><input type="checkbox" checked={autoSkip} onChange={(event) => setAutoSkip(event.currentTarget.checked)} />Skip to next pass</label>
-            </div>
-            <div className="expanded-group">
-            <strong>Satellites: <button type="button" onClick={() => setConstellationMode(false)} aria-pressed={!constellationMode}>Single</button> | <button type="button" onClick={() => setConstellationMode(true)} aria-pressed={constellationMode}>Constellation</button></strong>
-            </div>
-          </div>}
-          {skipToast && <span className="skip-toast" role="status">{skipToast}</span>}
-        </footer>
       </section>
     </>
   );

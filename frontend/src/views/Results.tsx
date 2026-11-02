@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { predict } from "../api";
+import { API_BASE_URL, predict } from "../api";
 import { Panel } from "../components/Panel";
 import { theme } from "../theme";
 import type { ChannelInputs, PredictionResponse } from "../types";
@@ -37,6 +37,9 @@ type SweepPoint = {
   [label: string]: number;
 };
 
+const sweepRange = Array.from({ length: 36 }, (_, index) => index - 5);
+const sweepBatchSize = 6;
+
 const lineColor = (label: string) =>
   label === "RF"
     ? theme.rf
@@ -51,20 +54,47 @@ export function Results({
   const [sweep, setSweep] = useState<SweepPoint[]>([]);
   const [sweeping, setSweeping] = useState(false);
   const [sweepError, setSweepError] = useState<string | null>(null);
+  const [sweepProgress, setSweepProgress] = useState(0);
 
   const runSweep = async () => {
     setSweeping(true);
     setSweepError(null);
+    setSweepProgress(0);
     try {
       const points: SweepPoint[] = [];
-      for (let rfSnr = -5; rfSnr <= 30; rfSnr += 5) {
-        const response = await predict({ ...inputs, rf_snr_db: rfSnr });
-        points.push({ rf_snr_db: rfSnr, ...response.confidence_percent });
+      for (let start = 0; start < sweepRange.length; start += sweepBatchSize) {
+        const batch = sweepRange.slice(start, start + sweepBatchSize);
+        const responses = await Promise.all(
+          batch.map((rfSnr) => predict({ ...inputs, rf_snr_db: rfSnr })),
+        );
+        points.push(
+          ...responses.map((response, index) => {
+            if (response.prediction !== "RF" && response.prediction !== "FSO") {
+              throw new Error(`The API returned an unknown link label: ${response.prediction}`);
+            }
+            const rfSnr = batch[index];
+            if (rfSnr === undefined) {
+              throw new Error("The sweep response did not match its RF SNR input.");
+            }
+            return { rf_snr_db: rfSnr, ...response.confidence_percent };
+          }),
+        );
+        setSweepProgress(points.length);
       }
       setSweep(points);
     } catch (error) {
+      const endpoint = `${API_BASE_URL}/api/predict`;
+      console.error("Model sweep failed.", {
+        endpoint,
+        inputs,
+        error,
+      });
       setSweepError(
-        error instanceof Error ? error.message : "The model sweep failed.",
+        error instanceof TypeError
+          ? `Could not reach ${endpoint}. Check that the backend is running and CORS allows this page. (${error.message})`
+          : error instanceof Error
+            ? error.message
+            : String(error),
       );
     } finally {
       setSweeping(false);
@@ -87,10 +117,17 @@ export function Results({
           <div className="chart-heading-row">
             <p>RF SNR input across the slider range; each point is a /api/predict response.</p>
             <button type="button" className="button" onClick={() => void runSweep()} disabled={sweeping}>
-              {sweeping ? "Running sweep…" : "Run model sweep"}
+              {sweeping ? `Running… ${sweepProgress}/${sweepRange.length}` : "Run model sweep"}
             </button>
           </div>
-          {sweepError && <p className="chart-error" role="alert">{sweepError}</p>}
+          {sweepError && (
+            <div className="chart-error" role="alert">
+              <p>{sweepError}</p>
+              <button type="button" className="button" onClick={() => void runSweep()} disabled={sweeping}>
+                Retry
+              </button>
+            </div>
+          )}
           {sweep.length > 0 ? (
             <div className="chart-wrap model-sweep-chart" role="img" aria-label="Model confidence across RF SNR sweep">
               <ResponsiveContainer width="100%" height="100%">
@@ -142,15 +179,15 @@ export function Results({
           <p>Geometry only · assumed orbit.</p>
           <div className="chart-wrap" role="img" aria-label="Satellite elevation over the station">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={elevationSamples} margin={{ top: 8, right: 12, bottom: 20, left: 8 }}>
+              <AreaChart data={elevationSamples} margin={{ top: 8, right: 12, bottom: 20, left: 36 }}>
                 <CartesianGrid stroke={theme.chartGrid} />
                 <XAxis dataKey="hours" type="number" domain={[0, 24]} ticks={[0, 4, 8, 12, 16, 20, 24]} tickFormatter={(value: number) => `${value} h`} label={{ value: "Time (hours)", position: "insideBottom", offset: -12, fill: theme.inkMuted }} />
-                <YAxis unit="°" label={{ value: "Elevation (degrees)", angle: -90, position: "insideLeft", fill: theme.inkMuted }} />
+                <YAxis ticks={[0, 15, 30, 45, 60]} unit="°" label={{ value: "Elevation (degrees)", angle: -90, position: "insideLeft", textAnchor: "middle", fill: theme.inkMuted }} />
                 <Tooltip
                   contentStyle={{ background: theme.surfaceStrong, border: `1px solid ${theme.border}`, borderRadius: 12, color: theme.text }}
                   formatter={(value) => [Number(value) >= MASK_ELEVATION_DEG ? `Elevation: ${Math.round(Number(value))}°` : "Below horizon", ""]}
                 />
-                <ReferenceLine y={MASK_ELEVATION_DEG} stroke={theme.textMuted} strokeDasharray="5 5" label={{ value: "mask (assumed)", fill: theme.textMuted, fontSize: 12 }} />
+                <ReferenceLine y={MASK_ELEVATION_DEG} stroke={theme.textMuted} strokeDasharray="5 5" label={{ value: "mask (assumed)", position: "insideTop", offset: 8, fill: theme.textMuted, fontSize: 12 }} />
                 <Area type="stepAfter" dataKey="visibleElevation" name="Elevation" stroke={theme.rf} fill={theme.rf} fillOpacity={0.28} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>

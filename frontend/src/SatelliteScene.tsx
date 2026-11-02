@@ -940,7 +940,8 @@ function CameraRig({
     if (!controls || cameraView === "manual" || cameraView === "ground" || cameraView === "follow") return;
 
     if (cameraView === "orbit") {
-      controls.setLookAt(0, -1.7, 8, 0, -1.7, 0, false);
+      const targetY = stageHeight < 560 ? -1.3 : -1.7;
+      controls.setLookAt(0, targetY, 5.6, 0, targetY, 0, false);
       return;
     }
 
@@ -949,7 +950,7 @@ function CameraRig({
       return;
     }
 
-  }, [cameraView]);
+  }, [cameraView, stageHeight]);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
@@ -1616,7 +1617,7 @@ export default function SatelliteScene({
   return (
     <Canvas
       aria-label="Interactive 3D illustration of Earth, a satellite, and a ground station"
-      camera={{ position: [0, -1.58, 6.5], fov: 45 }}
+      camera={{ position: [0, -1.7, 5.6], fov: 45 }}
       dpr={[1, 1.5]}
       frameloop={pageVisible ? "always" : "never"}
       gl={{ antialias: true, powerPreference: "high-performance" }}

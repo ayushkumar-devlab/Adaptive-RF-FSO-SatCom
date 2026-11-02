@@ -101,12 +101,12 @@ export function Method() {
           <div className="evaluation-stats">
             <div className="evaluation-stat">
               <strong>99.61%</strong>
-              <span>Accuracy on the full synthetic dataset</span>
+              <span>Accuracy on all 10,000 synthetic samples I generated</span>
               <small>10,000 samples · 8210 + 1751 correct</small>
             </div>
             <div className="evaluation-stat">
               <strong>97.41%</strong>
-              <span>Accuracy on the matched synthetic dataset</span>
+              <span>Accuracy on the matched synthetic set</span>
             </div>
             <div className="evaluation-stat">
               <strong>39</strong>
@@ -116,7 +116,7 @@ export function Method() {
           </div>
           <div className="evaluation-block">
             <h3>Confusion matrix</h3>
-            <p className="confusion-caption">Rows = true class, columns = predicted class</p>
+            <p className="confusion-caption">I read each row as the actual link and each column as the model&apos;s prediction.</p>
             <div className="evaluation-table-wrap">
               <table className="confusion-matrix">
                 <thead>
@@ -130,10 +130,14 @@ export function Method() {
             </div>
           </div>
           <p>
-            The Random Forest picks the right link almost every time. The few
-            errors are mostly FSO cases predicted as RF. These metrics use the
-            full synthetic dataset, so they are not a held-out test or a
-            real-link measurement.
+            I generated this synthetic data myself. The 99.61% accuracy is
+            from all 10,000 samples, and 97.41% is from the matched set.
+            Neither score comes from a held-out test split or real link
+            measurements. “Matched” means I evaluated each strategy on the
+            same 10,000 generated channel scenarios. There were 39 errors
+            (6 + 33): 6 RF samples predicted as FSO and 33 FSO samples
+            predicted as RF. Those 33 FSO-to-RF mistakes cost more here
+            because they leave bandwidth unused.
           </p>
         </Panel>
 
