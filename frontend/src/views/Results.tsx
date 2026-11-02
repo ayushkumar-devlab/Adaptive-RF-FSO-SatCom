@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { API_BASE_URL, predict } from "../api";
+import { API_BASE_URL, ApiHttpError, ApiTimeoutError, health, predict } from "../api";
 import { Panel } from "../components/Panel";
 import { theme } from "../theme";
 import type { ChannelInputs, PredictionResponse } from "../types";
@@ -39,6 +39,7 @@ type SweepPoint = {
 
 const sweepRange = Array.from({ length: 36 }, (_, index) => index - 5);
 const sweepBatchSize = 6;
+const retryBackoffMs = [1_000, 3_000];
 
 const lineColor = (label: string) =>
   label === "RF"
@@ -55,48 +56,81 @@ export function Results({
   const [sweeping, setSweeping] = useState(false);
   const [sweepError, setSweepError] = useState<string | null>(null);
   const [sweepProgress, setSweepProgress] = useState(0);
+  const [wakingServer, setWakingServer] = useState(false);
+
+  const predictWithRetry = async (rfSnr: number): Promise<PredictionResponse> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await predict({ ...inputs, rf_snr_db: rfSnr });
+      } catch (error) {
+        const delay = retryBackoffMs[attempt];
+        if (delay === undefined) throw error;
+        await new Promise((resolve) => window.setTimeout(resolve, delay));
+      }
+    }
+  };
 
   const runSweep = async () => {
     setSweeping(true);
+    setWakingServer(true);
     setSweepError(null);
     setSweepProgress(0);
+    let phase: "health" | "predict" = "health";
     try {
+      await health();
+      phase = "predict";
+      setWakingServer(false);
       const points: SweepPoint[] = [];
       for (let start = 0; start < sweepRange.length; start += sweepBatchSize) {
         const batch = sweepRange.slice(start, start + sweepBatchSize);
-        const responses = await Promise.all(
-          batch.map((rfSnr) => predict({ ...inputs, rf_snr_db: rfSnr })),
-        );
+        const results = await Promise.all(batch.map(async (rfSnr) => {
+          try {
+            return { ok: true as const, rfSnr, response: await predictWithRetry(rfSnr) };
+          } catch (error) {
+            return { ok: false as const, rfSnr, error };
+          } finally {
+            setSweepProgress((progress) => progress + 1);
+          }
+        }));
+        const failed = results.find((result) => !result.ok);
+        if (failed && !failed.ok) throw failed.error;
         points.push(
-          ...responses.map((response, index) => {
+          ...results.map((result) => {
+            if (!result.ok) throw result.error;
+            const { response, rfSnr } = result;
             if (response.prediction !== "RF" && response.prediction !== "FSO") {
               throw new Error(`The API returned an unknown link label: ${response.prediction}`);
             }
-            const rfSnr = batch[index];
-            if (rfSnr === undefined) {
-              throw new Error("The sweep response did not match its RF SNR input.");
+            if (response.inputs.rf_snr_db !== rfSnr) {
+              throw new Error(`The sweep response did not match its RF SNR input (${rfSnr} dB).`);
             }
             return { rf_snr_db: rfSnr, ...response.confidence_percent };
           }),
         );
-        setSweepProgress(points.length);
       }
       setSweep(points);
     } catch (error) {
-      const endpoint = `${API_BASE_URL}/api/predict`;
+      const endpoint = error instanceof ApiHttpError || error instanceof ApiTimeoutError
+        ? error.url
+        : phase === "health"
+          ? `${API_BASE_URL}/api/health`
+          : `${API_BASE_URL}/api/predict`;
       console.error("Model sweep failed.", {
         endpoint,
         inputs,
         error,
       });
-      setSweepError(
-        error instanceof TypeError
-          ? `Could not reach ${endpoint}. Check that the backend is running and CORS allows this page. (${error.message})`
-          : error instanceof Error
-            ? error.message
-            : String(error),
-      );
+      if (error instanceof ApiTimeoutError) {
+        setSweepError(`Timeout: ${error.message}`);
+      } else if (error instanceof ApiHttpError) {
+        setSweepError(`HTTP status ${error.status} from ${error.url}.`);
+      } else if (error instanceof TypeError) {
+        setSweepError(`CORS/network failure contacting ${endpoint}. Check the backend URL and allowed frontend origins. (${error.message})`);
+      } else {
+        setSweepError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
+      setWakingServer(false);
       setSweeping(false);
     }
   };
@@ -120,6 +154,9 @@ export function Results({
               {sweeping ? `Running… ${sweepProgress}/${sweepRange.length}` : "Run model sweep"}
             </button>
           </div>
+          {wakingServer && (
+            <p role="status">Waking up the server, this can take up to a minute on the free tier…</p>
+          )}
           {sweepError && (
             <div className="chart-error" role="alert">
               <p>{sweepError}</p>

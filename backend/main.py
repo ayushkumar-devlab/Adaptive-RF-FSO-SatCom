@@ -46,24 +46,23 @@ app = FastAPI(
 # 3. CORS CONFIGURATION
 # --------------------------------------------------
 
-# Local development URLs are allowed by default.
-# Add your Vercel URL through the CORS_ORIGINS
-# environment variable when deploying on Render.
-
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
-    ).split(",")
-    if origin.strip()
-]
+# Local development URLs are always allowed. Add deployed frontend origins
+# through ALLOWED_ORIGINS as a comma-separated list.
+allowed_origins = list(dict.fromkeys([
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    *(
+        origin.strip().rstrip("/")
+        for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ),
+]))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -90,12 +89,7 @@ class ChannelInputs(BaseModel):
 @app.get("/api/health")
 def health():
 
-    return {
-        "status": "ok",
-        "app": "SATCOM Adaptive Link API",
-        "model_loaded": True,
-        "features": FEATURES,
-    }
+    return {"status": "ok"}
 
 
 # --------------------------------------------------
