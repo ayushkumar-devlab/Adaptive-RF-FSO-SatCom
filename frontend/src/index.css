@@ -1546,3 +1546,188 @@ body,
   .evaluation-stats { grid-template-columns: minmax(0, 1fr); }
   .evaluation-table-wrap { max-width: 100%; overflow-x: auto; }
 }
+
+.console .side-panels { z-index: 4; }
+.console .side-panels .panel {
+  padding: 20px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.console .side-panels .panel-heading {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.compact-status {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  overflow: visible;
+  white-space: normal;
+}
+.compact-status > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.compact-status small { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.compact-status strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.compact-status .serving-changed { animation: serving-flash 400ms ease-out; }
+@keyframes serving-flash {
+  0% { background: rgba(255, 255, 255, .18); }
+  100% { background: transparent; }
+}
+.handover-toast {
+  position: absolute;
+  z-index: 8;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  display: grid;
+  gap: 3px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 14px;
+  color: var(--text);
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+  text-align: center;
+  transform: translateX(-50%);
+}
+.handover-toast span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.handover-log { margin-top: 16px; }
+.handover-log h3 { margin: 0 0 8px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.handover-log p { margin: 0; color: var(--muted); font-size: 12px; }
+.handover-log ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.handover-log li { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
+.handover-log time { font-variant-numeric: tabular-nums; }
+.decision-panel .decision-sentence {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+}
+.decision-panel .decision-sentence .decision-dot { background: var(--rf); }
+.decision-panel .decision-sentence.fso .decision-dot { background: var(--fso); }
+.decision-panel .decision-metrics { margin: 0 0 12px; }
+.decision-panel .decision-summary { color: var(--muted); font-size: 12px; }
+.decision-panel .decision-row {
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.decision-panel .decision-row.selected {
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.decision-panel .decision-row p {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.decision-panel .decision-percent { font-variant-numeric: tabular-nums; }
+.decision-panel .decision-row small { display: none; }
+.controls-panel .scenario-options::before,
+.controls-panel .controls-list::before,
+.controls-panel .controls-list > :has(input[id="fso_snr_db"])::before,
+.controls-panel .controls-list > :has(input[id="atmospheric_loss_db"])::before {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.controls-panel .scenario-options::before { content: "Weather"; }
+.controls-panel .controls-list::before { content: "RF link"; }
+.controls-panel .controls-list > :has(input[id="fso_snr_db"])::before { content: "FSO link"; }
+.controls-panel .controls-list > :has(input[id="atmospheric_loss_db"])::before { content: "Losses"; }
+.controls-panel .control-row,
+.controls-panel .control-item { margin-bottom: 16px; text-align: left; }
+.controls-panel .control-label,
+.controls-panel .range-labels { font-variant-numeric: tabular-nums; text-align: left; }
+.controls-panel .controls-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.controls-panel .controls-list :focus-visible,
+.controls-panel input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.scene-portal .satellite-in-view { opacity: .5; }
+.scene-portal .satellite-serving { opacity: 1; }
+.scene-portal .satellite-serving .callout-dot {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+.scene-portal .satellite-serving .callout-dot::after {
+  position: absolute;
+  inset: -4px;
+  border: 1px solid var(--text);
+  border-radius: 50%;
+  content: "";
+}
+.scene-portal .satellite-serving .callout-card::after {
+  color: var(--text);
+  content: "Serving";
+  font-size: 11px;
+  font-weight: 600;
+}
+.scene-portal .satellite-in-view .callout-card::after {
+  color: var(--muted);
+  content: "In view";
+  font-size: 11px;
+}
+.scene-portal .satellite-below-horizon .callout-card { display: none; }
+.scene-portal .satellite-pulse .callout-dot::after {
+  animation: handover-pulse 600ms ease-out;
+}
+@keyframes handover-pulse {
+  0% { transform: scale(.7); opacity: 1; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.scene-portal .callout-flip-right .callout-card {
+  left: var(--panel-flip-offset, 12px) !important;
+  right: auto !important;
+  top: 12px !important;
+  transform: none !important;
+}
+.scene-portal .callout-flip-left .callout-card {
+  left: auto !important;
+  right: var(--panel-flip-offset, 12px) !important;
+  top: 12px !important;
+  transform: none !important;
+}
+.scene-portal .callout-flip-up .callout-card {
+  top: auto !important;
+  bottom: var(--dock-clearance, 12px) !important;
+}
+.scene-portal .ground-station-label .callout-card > * { display: none; }
+.scene-portal .ground-station-label .callout-card::before {
+  color: var(--text);
+  content: "Bengaluru ground station\A 12.97°N, 77.59°E";
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: pre;
+}
+@media (max-width: 600px) {
+  .compact-status { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .compact-status > span:nth-child(4),
+  .compact-status > span:nth-child(5) { grid-column: span 1; }
+  .handover-toast { max-width: calc(100vw - 24px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .compact-status .serving-changed,
+  .scene-portal .satellite-pulse .callout-dot::after { animation: none; }
+}
