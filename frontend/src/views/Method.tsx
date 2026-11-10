@@ -9,34 +9,34 @@ import {
 
 const stages = [
   {
-    number: "01",
+    number: "1",
     title: "BPSK baseline",
-    description: "Started with the simplest case: BPSK bit error rate over a noisy channel. Every later result is compared against this.",
+    description: "I started with BPSK over a noisy channel. Every later result is compared against it.",
   },
   {
-    number: "02",
+    number: "2",
     title: "RF and FSO links",
-    description: "Modelled the radio link and the optical link separately, then a hybrid of both. RF copes with cloud; FSO carries far more data when the sky is clear.",
+    description: "I modelled the radio and optical links separately. RF copes with cloud. FSO carries far more data in clear sky.",
   },
   {
-    number: "03",
+    number: "3",
     title: "Threshold switching",
-    description: "First attempt at switching: if one link drops below a quality limit, move to the other. Easy to explain, but a fixed limit cannot adapt to changing conditions.",
+    description: "My first try: when one link drops below a quality limit, switch to the other. Simple, but a fixed limit can't adapt.",
   },
   {
-    number: "04",
+    number: "4",
     title: "Synthetic dataset",
-    description: "Generated 10,000 channel scenarios from four inputs (RF SNR, FSO SNR, atmospheric loss, cloud attenuation), each labelled with the better link.",
+    description: "I generated 10,000 channel scenarios from four inputs: RF SNR, FSO SNR, atmospheric loss and cloud loss. Each is labelled with the better link.",
   },
   {
-    number: "05",
+    number: "5",
     title: "Random Forest",
-    description: "Trained a Random Forest to pick RF or FSO from those four numbers. It scores 99.61% on the full dataset, which is not a held-out test.",
+    description: "I trained a Random Forest to pick RF or FSO from those four numbers. It scores 99.61% on the full dataset, which is not a held-out test.",
   },
   {
-    number: "06",
+    number: "6",
     title: "Live dashboard",
-    description: "FastAPI serves the model. This dashboard sends your slider values to it and shows which link it chooses.",
+    description: "FastAPI serves the model. The dashboard sends your slider values to it and shows which link it picks.",
   },
 ];
 
@@ -67,18 +67,20 @@ export function Method() {
         </Panel>
 
         <Panel title="Project pipeline">
-          <ol className="pipeline-diagram">
-            {stages.map(({ number, title, description }) => (
-              <li
-                className={`pipeline-block${number === "05" || number === "06" ? " pipeline-block-accent" : ""}`}
-                key={number}
-              >
-                <span className="pipeline-number">{number}</span>
-                <strong>{title}</strong>
-                <p>{description}</p>
-              </li>
-            ))}
-          </ol>
+          <div className="pipeline-scroll">
+            <ol className="pipeline-diagram">
+              {stages.map(({ number, title, description }) => (
+                  <li
+                    className={`pipeline-block${number === "6" ? " pipeline-block-accent" : ""}`}
+                    key={number}
+                  >
+                    <span className="pipeline-number">{number}</span>
+                    <strong>{title}</strong>
+                    <p>{description}</p>
+                  </li>
+              ))}
+            </ol>
+          </div>
         </Panel>
 
         <Panel title="Model inputs and prediction">

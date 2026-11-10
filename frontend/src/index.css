@@ -652,67 +652,52 @@ th, td { padding: 14px; border-bottom: 1px solid var(--border); text-align: left
 .callout-card {
   background: rgba(27, 32, 35, .96);
 }
+.pipeline-scroll { max-width: 100%; overflow-x: auto; }
 .pipeline-diagram {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  align-items: stretch;
-  gap: 30px;
+  gap: 24px;
+  min-width: 1104px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
+.pipeline-diagram::before {
+  position: absolute;
+  top: 4px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border);
+  content: "";
+}
 .pipeline-block {
   position: relative;
-  z-index: 0;
   display: flex;
-  min-width: 0;
+  min-width: 160px;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  background: rgba(11, 13, 15, .92);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  transition: transform .2s ease, box-shadow .2s ease;
+  gap: 6px;
+  padding: 20px 0 0;
 }
-.pipeline-block:hover {
-  z-index: 1;
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, .22);
-}
-.pipeline-block-accent { border-color: rgba(82, 167, 234, .48); }
-.pipeline-block:not(:last-child)::after {
+.pipeline-block::before {
   position: absolute;
-  top: 50%;
-  right: -30px;
-  width: 30px;
+  top: 0;
+  left: 0;
+  width: 8px;
   height: 8px;
-  background: rgba(82, 167, 234, .6);
-  clip-path: polygon(0 3px, calc(100% - 7px) 3px, calc(100% - 7px) 0, 100% 4px, calc(100% - 7px) 8px, calc(100% - 7px) 5px, 0 5px);
-  content: "";
-  transform: translateY(-50%);
-}
-.pipeline-block:not(:last-child)::before {
-  position: absolute;
-  top: 50%;
-  right: -2px;
-  width: 4px;
-  height: 4px;
-  background: rgba(82, 167, 234, .6);
+  background: var(--muted);
   border-radius: 50%;
   content: "";
-  transform: translate(50%, -50%);
 }
 .pipeline-number {
-  text-align: left;
   color: var(--faint);
-  font-family: "IBM Plex Mono", monospace;
   font-size: 10px;
-  font-weight: 500;
-  letter-spacing: .08em;
-  line-height: 1.2;
+  line-height: 1.5;
 }
-.pipeline-block strong { color: var(--text); font-size: 13px; line-height: 1.3; text-align: left; }
-.pipeline-block p { margin: 0; overflow-wrap: break-word; color: var(--muted); font-size: 11px; line-height: 1.55; text-align: justify; text-justify: inter-word; hyphens: auto; }
+.pipeline-block strong { color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1.5; text-align: left; }
+.pipeline-block-accent strong { color: var(--text); }
+.pipeline-block p { margin: 0; overflow-wrap: break-word; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: left; }
 .evaluation-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -763,28 +748,41 @@ th, td { padding: 14px; border-bottom: 1px solid var(--border); text-align: left
   .dock-row-b { flex-wrap: wrap; }
   .pass-strip { flex-basis: 100%; order: 3; }
 }
-@media (max-width: 760px) {
-  .pipeline-diagram { grid-template-columns: minmax(0, 1fr); }
-  .pipeline-block:not(:last-child)::after {
-    top: 100%;
-    right: auto;
-    left: 50%;
-    width: 8px;
-    height: 30px;
-    clip-path: polygon(3px 0, 5px 0, 5px calc(100% - 7px), 8px calc(100% - 7px), 4px 100%, 0 calc(100% - 7px), 3px calc(100% - 7px));
-    transform: translateX(-50%);
+@media (max-width: 1000px) {
+  .pipeline-scroll { overflow-x: visible; }
+  .pipeline-diagram {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
   }
-  .pipeline-block:not(:last-child)::before {
-    top: 100%;
-    right: auto;
-    left: 50%;
-    transform: translate(-50%, -50%);
+  .pipeline-diagram::before { display: none; }
+  .pipeline-block::after {
+    position: absolute;
+    top: 4px;
+    right: -24px;
+    left: 4px;
+    height: 1px;
+    background: var(--border);
+    content: "";
   }
+  .pipeline-block:nth-child(3n)::after { display: none; }
 }
-@media (max-width: 420px) {
-  .pipeline-block { padding: 12px; }
-  .pipeline-block strong { font-size: 11px; }
-  .pipeline-block p { font-size: 11px; }
+@media (max-width: 600px) {
+  .pipeline-diagram { grid-template-columns: minmax(0, 1fr); }
+  .pipeline-diagram::before {
+    top: 4px;
+    right: auto;
+    bottom: 4px;
+    left: 4px;
+    display: block;
+    width: 1px;
+    height: auto;
+  }
+  .pipeline-block {
+    min-width: 0;
+    padding: 0 0 0 24px;
+  }
+  .pipeline-block::before { left: 0; }
+  .pipeline-block::after { display: none; }
   .evaluation-stats { gap: 7px; }
   .evaluation-stat { padding: 10px 8px; }
   .evaluation-stat strong { font-size: 18px; }

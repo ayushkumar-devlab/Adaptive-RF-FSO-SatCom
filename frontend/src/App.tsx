@@ -34,6 +34,7 @@ export default function App() {
   const [prediction, setPrediction] = useState<string | null>(null);
   const [confidence, setConfidence] = useState<Record<string, number>>({});
   const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
+  const [apiHealthReady, setApiHealthReady] = useState(false);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeSection, setActiveSection] = useState("simulator");
@@ -55,6 +56,7 @@ export default function App() {
     const checkHealth = async () => {
       try {
         await health(controller.signal);
+        setApiHealthReady(true);
         setApiStatus("connected");
       } catch (requestError) {
         if (requestError instanceof Error && requestError.name === "AbortError") return;
@@ -143,7 +145,7 @@ export default function App() {
         onLinkVisibility={setLinkUp}
       />
       <main className="reading-content">
-        <Results inputs={inputs} history={history} />
+        <Results inputs={inputs} history={history} apiReady={apiHealthReady} />
         <Overview />
         <Method />
         <footer className="page-footer">

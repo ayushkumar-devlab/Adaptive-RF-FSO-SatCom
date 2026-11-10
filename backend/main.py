@@ -51,6 +51,7 @@ app = FastAPI(
 allowed_origins = list(dict.fromkeys([
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://adaptive-satcom.vercel.app",
     *(
         origin.strip().rstrip("/")
         for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
@@ -80,6 +81,11 @@ class ChannelInputs(BaseModel):
     atmospheric_loss_db: float = Field(ge=0, le=100)
 
     cloud_attenuation_db: float = Field(ge=0, le=100)
+
+
+class BatchPredictionRequest(BaseModel):
+
+    items: list[ChannelInputs] = Field(max_length=100)
 
 
 # --------------------------------------------------
@@ -133,6 +139,40 @@ def predict(inputs: ChannelInputs):
             "not live satellite telemetry."
         ),
     }
+
+
+@app.post("/api/predict-batch")
+def predict_batch(request: BatchPredictionRequest):
+
+    values = [item.model_dump() for item in request.items]
+    if not values:
+        return {"results": []}
+
+    rows = pd.DataFrame(
+        [[item[name] for name in FEATURES] for item in values],
+        columns=FEATURES,
+    )
+    probabilities = model.predict_proba(rows)
+    predictions = model.classes_[probabilities.argmax(axis=1)]
+
+    results = []
+    for item, prediction, item_probabilities in zip(values, predictions, probabilities):
+        confidence = {
+            str(label): round(float(probability) * 100, 2)
+            for label, probability in zip(model.classes_, item_probabilities)
+        }
+        results.append({
+            "prediction": str(prediction),
+            "confidence_percent": confidence,
+            "inputs": item,
+            "model_features": FEATURES,
+            "note": (
+                "Model prediction from supplied inputs; "
+                "not live satellite telemetry."
+            ),
+        })
+
+    return {"results": results}
 
 
 # --------------------------------------------------
