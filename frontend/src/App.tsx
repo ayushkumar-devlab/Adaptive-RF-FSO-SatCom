@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ControlPanel } from "./components/ControlPanel";
 import { getInitialSimulationTime } from "./sim/orbit";
-import { API_BASE_URL, ApiHttpError, ApiTimeoutError, health, predict } from "./api";
+import { API_BASE_URL, health, predict } from "./api";
 import { LinkSimulation } from "./views/LinkSimulation";
 import { Method } from "./views/Method";
 import { Overview } from "./views/Overview";
 import { Results } from "./views/Results";
-import type { ApiStatus, ChannelInputs, PredictionResponse } from "./types";
+import type { ApiStatus, ChannelInputs, DecisionState, PredictionResponse } from "./types";
 import { theme } from "./theme";
 
 const initialInputs: ChannelInputs = {
@@ -31,11 +31,17 @@ function prefersReducedMotion() {
 
 export default function App() {
   const [inputs, setInputs] = useState<ChannelInputs>(initialInputs);
-  const [prediction, setPrediction] = useState<string | null>(null);
-  const [confidence, setConfidence] = useState<Record<string, number>>({});
+  const [decision, setDecision] = useState<DecisionState>({
+    status: "loading",
+    rfProb: null,
+    fsoProb: null,
+    selected: null,
+    updatedAt: null,
+  });
+  const [coldStartSeconds, setColdStartSeconds] = useState(0);
+  const [predictionRetryKey, setPredictionRetryKey] = useState(0);
   const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
   const [apiHealthReady, setApiHealthReady] = useState(false);
-  const [predictionError, setPredictionError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeSection, setActiveSection] = useState("simulator");
   const [clockInitial] = useState(() => ({
@@ -44,7 +50,8 @@ export default function App() {
     playing: !prefersReducedMotion(),
   }));
   const clockRef = useRef(clockInitial);
-  const [linkUp, setLinkUp] = useState(false);
+  const [, setLinkUp] = useState(false);
+  const hasPredictionRef = useRef(false);
 
   useEffect(() => {
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.board);
@@ -72,37 +79,92 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!linkUp) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setPredictionError(null);
-      setApiStatus((status) => status === "offline" ? status : "loading");
+    const firstRequest = !hasPredictionRef.current;
+    let timer: number | undefined;
+    let retryTimer: number | undefined;
+    let elapsedTimer: number | undefined;
+    let requestStartedAt = 0;
+    setDecision((previous) => ({ ...previous, status: "loading" }));
+    setApiStatus("loading");
+
+    const requestPrediction = async (attempt: number) => {
       try {
-        const response = await predict(inputs, controller.signal);
-        setPrediction(response.prediction);
-        setConfidence(response.confidence_percent);
+        const timeoutMs = firstRequest && attempt === 0 ? 60_000 : 30_000;
+        const response = await predict(inputs, controller.signal, timeoutMs);
+        if (controller.signal.aborted) return;
+        console.info("Model prediction response.", response);
+        const rfProb = response.confidence_percent.RF;
+        const fsoProb = response.confidence_percent.FSO;
+        if (
+          !Number.isFinite(rfProb) ||
+          !Number.isFinite(fsoProb) ||
+          (response.prediction !== "RF" && response.prediction !== "FSO")
+        ) {
+          throw new Error("The prediction response did not contain valid link probabilities and selection.");
+        }
+        hasPredictionRef.current = true;
+        if (elapsedTimer !== undefined) window.clearInterval(elapsedTimer);
+        setDecision({
+          status: "ready",
+          rfProb,
+          fsoProb,
+          selected: response.prediction,
+          updatedAt: Date.now(),
+        });
         setHistory((previous) => [{ inputs, response }, ...previous].slice(0, 8));
         setApiStatus("connected");
       } catch (requestError) {
-        if (requestError instanceof Error && requestError.name === "AbortError") return;
-        console.error("Model prediction failed.", { endpoint: `${API_BASE_URL}/api/predict`, error: requestError });
-        setPredictionError(
-          requestError instanceof ApiTimeoutError
-            ? "The model service took too long to respond. Please retry."
-            : requestError instanceof TypeError
-              ? "The model service isn't responding right now. Please try again in a moment."
-              : requestError instanceof ApiHttpError
-                ? "The model service returned an error. Please try again."
-                : "The model service couldn't complete the request. Please try again.",
-        );
+        if (controller.signal.aborted || (requestError instanceof Error && requestError.name === "AbortError")) return;
+        if (elapsedTimer !== undefined) window.clearInterval(elapsedTimer);
+        console.error("Model prediction failed.", {
+          endpoint: `${API_BASE_URL}/api/predict`,
+          error: requestError,
+        });
+        setDecision({
+          status: "error",
+          rfProb: null,
+          fsoProb: null,
+          selected: null,
+          updatedAt: null,
+        });
         setApiStatus("offline");
+        if (attempt === 0) {
+          retryTimer = window.setTimeout(() => {
+            if (controller.signal.aborted) return;
+            setDecision((previous) => ({ ...previous, status: "loading" }));
+            setApiStatus("loading");
+            if (firstRequest) {
+              requestStartedAt = Date.now();
+              elapsedTimer = window.setInterval(
+                () => setColdStartSeconds(Math.floor((Date.now() - requestStartedAt) / 1000)),
+                1000,
+              );
+            }
+            void requestPrediction(1);
+          }, 3000);
+        }
       }
-    }, 1000);
+    };
+
+    timer = window.setTimeout(() => {
+      requestStartedAt = Date.now();
+      if (firstRequest) {
+        setColdStartSeconds(0);
+        elapsedTimer = window.setInterval(
+          () => setColdStartSeconds(Math.floor((Date.now() - requestStartedAt) / 1000)),
+          1000,
+        );
+      }
+      void requestPrediction(0);
+    }, 300);
     return () => {
-      window.clearTimeout(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      if (elapsedTimer !== undefined) window.clearInterval(elapsedTimer);
       controller.abort();
     };
-  }, [inputs, linkUp]);
+  }, [inputs, predictionRetryKey]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -134,8 +196,9 @@ export default function App() {
     <div className="app-shell">
       <LinkSimulation
         inputs={inputs}
-        prediction={prediction}
-        confidence={confidence}
+        decision={decision}
+        coldStartSeconds={coldStartSeconds}
+        onRetryPrediction={() => setPredictionRetryKey((current) => current + 1)}
         clockRef={clockRef}
         initialTime={clockInitial.t}
         initialPlaying={clockInitial.playing}
@@ -150,7 +213,6 @@ export default function App() {
           />
         }
         apiStatus={apiStatus}
-        predictionError={predictionError}
         onLinkVisibility={setLinkUp}
       />
       <main className="reading-content">

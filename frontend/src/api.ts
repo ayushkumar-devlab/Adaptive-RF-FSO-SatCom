@@ -83,12 +83,13 @@ export async function health(signal?: AbortSignal): Promise<HealthResponse> {
 export async function predict(
   inputs: ChannelInputs,
   signal?: AbortSignal,
+  timeoutMs = 30_000,
 ): Promise<PredictionResponse> {
   const url = `${API_BASE_URL}/api/predict`;
   const response = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(inputs),
-  }, 30_000, signal);
+  }, timeoutMs, signal);
   return (await response.json()) as PredictionResponse;
 }

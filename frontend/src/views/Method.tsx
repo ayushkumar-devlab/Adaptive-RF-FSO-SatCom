@@ -99,8 +99,7 @@ export function Method() {
           <div className="evaluation-stats">
             <div className="evaluation-stat">
               <strong>99.61%</strong>
-              <span>Accuracy on all 10,000 synthetic samples I generated</span>
-              <small>10,000 samples · 8210 + 1751 correct</small>
+              <span>Accuracy on full synthetic dataset (10,000 samples)</span>
             </div>
             <div className="evaluation-stat">
               <strong>97.41%</strong>
@@ -108,34 +107,47 @@ export function Method() {
             </div>
             <div className="evaluation-stat">
               <strong>39</strong>
-              <span>Misclassified samples</span>
-              <small>6 + 33</small>
+              <span>Misclassified samples (6 RF, 33 FSO)</span>
             </div>
           </div>
           <div className="evaluation-block">
             <h3>Confusion matrix</h3>
-            <p className="confusion-caption">I read each row as the actual link and each column as the model&apos;s prediction.</p>
+            <p className="confusion-caption">Rows show the actual link, columns show the model&apos;s prediction.</p>
             <div className="evaluation-table-wrap">
               <table className="confusion-matrix">
                 <thead>
-                  <tr><th aria-label="true class" /><th>RF</th><th>FSO</th><th>Support</th></tr>
+                  <tr><th rowSpan={2}>Actual link</th><th colSpan={2}>Predicted link</th></tr>
+                  <tr><th>RF</th><th>FSO</th></tr>
                 </thead>
                 <tbody>
-                  <tr><th>RF</th><td className="matrix-correct">8210</td><td className="matrix-error">6</td><td>8216</td></tr>
-                  <tr><th>FSO</th><td className="matrix-error">33</td><td className="matrix-correct">1751</td><td>1784</td></tr>
+                  <tr>
+                    <th>RF <small>(8,216)</small></th>
+                    <td className="matrix-count matrix-correct" style={{ backgroundColor: "rgba(82, 167, 234, 0.45)" }}>
+                      <strong>8210</strong><small>99.93%</small>
+                    </td>
+                    <td className="matrix-count matrix-error" style={{ backgroundColor: "#252A2F" }}>
+                      <strong>6</strong><small>0.07%</small>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>FSO <small>(1,784)</small></th>
+                    <td className="matrix-count matrix-error matrix-costlier" style={{ backgroundColor: "#252A2F" }}>
+                      <strong>33</strong><small>1.85%</small><em>Costlier error</em>
+                    </td>
+                    <td className="matrix-count matrix-correct" style={{ backgroundColor: "rgba(82, 167, 234, 0.45)" }}>
+                      <strong>1751</strong><small>98.15%</small>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
+            <div className="matrix-legend" aria-label="Confusion matrix legend">
+              <span><i className="legend-swatch legend-correct" />Correct prediction</span>
+              <span><i className="legend-swatch legend-error" />Misclassified</span>
+            </div>
           </div>
-          <p>
-            I generated this synthetic data myself. The 99.61% accuracy is
-            from all 10,000 samples, and 97.41% is from the matched set.
-            Neither score comes from a held-out test split or real link
-            measurements. “Matched” means I evaluated each strategy on the
-            same 10,000 generated channel scenarios. There were 39 errors
-            (6 + 33): 6 RF samples predicted as FSO and 33 FSO samples
-            predicted as RF. Those 33 FSO-to-RF mistakes cost more here
-            because they leave bandwidth unused.
+          <p className="evaluation-note">
+            Scores are computed on synthetic channel scenarios generated for this project, not on a held-out test split or real link measurements. The 33 FSO samples predicted as RF are the costlier errors, since they leave available bandwidth unused.
           </p>
         </Panel>
 

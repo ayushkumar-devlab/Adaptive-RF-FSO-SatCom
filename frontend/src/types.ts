@@ -14,3 +14,11 @@ export type PredictionResponse = {
 };
 
 export type ApiStatus = "checking" | "loading" | "connected" | "offline";
+
+export type DecisionState = {
+  status: "loading" | "ready" | "error";
+  rfProb: number | null;
+  fsoProb: number | null;
+  selected: "RF" | "FSO" | null;
+  updatedAt: number | null;
+};

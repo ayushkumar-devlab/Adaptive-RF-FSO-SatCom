@@ -2,7 +2,7 @@ import { Component, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRe
 import type { ErrorInfo, MutableRefObject, ReactNode } from "react";
 import { Panel } from "../components/Panel";
 import type { CameraView } from "../SatelliteScene";
-import type { ApiStatus, ChannelInputs } from "../types";
+import type { ApiStatus, ChannelInputs, DecisionState } from "../types";
 import {
   createPassSamples,
   createCoverageSummary,
@@ -189,10 +189,10 @@ const PlaybackTimeline = memo(function PlaybackTimeline({
 
 type LinkSimulationProps = {
   inputs: ChannelInputs;
-  prediction: string | null;
-  confidence: Record<string, number>;
+  decision: DecisionState;
+  coldStartSeconds: number;
+  onRetryPrediction: () => void;
   apiStatus: ApiStatus;
-  predictionError: string | null;
   clockRef: SimClockRef;
   initialTime: number;
   initialPlaying: boolean;
@@ -231,12 +231,41 @@ function PassMarker({
   );
 }
 
+function AnimatedPercent({ value }: { value: number | null }) {
+  const [displayed, setDisplayed] = useState(value ?? 0);
+  const displayedRef = useRef(value ?? 0);
+
+  useEffect(() => {
+    if (value === null) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      displayedRef.current = value;
+      setDisplayed(value);
+      return;
+    }
+
+    const from = displayedRef.current;
+    const startedAt = performance.now();
+    let frame = 0;
+    const animate = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / 300);
+      const next = from + (value - from) * progress;
+      displayedRef.current = next;
+      setDisplayed(next);
+      if (progress < 1) frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+
+  return <>{value === null ? "—" : `${displayed.toFixed(1)}%`}</>;
+}
+
 export function LinkSimulation({
   inputs,
-  prediction,
-  confidence,
+  decision,
+  coldStartSeconds,
+  onRetryPrediction,
   apiStatus,
-  predictionError,
   clockRef,
   initialTime,
   initialPlaying,
@@ -278,6 +307,7 @@ export function LinkSimulation({
   const scenePortalRef = useRef<HTMLDivElement>(null!);
   const consoleRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const dockRef = useRef<HTMLElement>(null);
   const [consoleInView, setConsoleInView] = useState(true);
   const [stageHeight, setStageHeight] = useState(560);
@@ -327,9 +357,10 @@ export function LinkSimulation({
     onLinkVisibility(visible);
   }, [onLinkVisibility]);
   const setCameraManual = useCallback(() => setCameraView("manual"), []);
-  const selected = prediction ?? "RF";
-  const rfProbability = confidence.RF;
-  const fsoProbability = confidence.FSO;
+  const selected = decision.selected;
+  const sceneSelected = selected ?? "RF";
+  const rfProbability = decision.rfProb;
+  const fsoProbability = decision.fsoProb;
   const theoryEffectiveFso = inputs.fso_snr_db - inputs.atmospheric_loss_db - inputs.cloud_attenuation_db;
   const theorySelection = theoryEffectiveFso > inputs.rf_snr_db ? "FSO" : "RF";
 
@@ -361,6 +392,19 @@ export function LinkSimulation({
     const observer = new ResizeObserver(updateStageHeight);
     observer.observe(stage);
     updateStageHeight();
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const updateHeaderH = () => {
+      const height = Math.ceil(header.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--header-h", `${height}px`);
+    };
+    const observer = new ResizeObserver(updateHeaderH);
+    observer.observe(header);
+    updateHeaderH();
     return () => observer.disconnect();
   }, []);
 
@@ -445,12 +489,14 @@ export function LinkSimulation({
   return (
     <>
       <section ref={consoleRef} className="console" id="simulator">
-        <header className="console-header">
-          <h1 className="site-title" title="Machine Learning-Based Adaptive RF–FSO Switching for Satellite Communication">
-            <span>ML-Based Adaptive</span>
-            <span>RF–FSO Switching</span>
-            <small>For satellite communication</small>
-          </h1>
+        <header ref={headerRef} className="console-header">
+          <div className="title-block">
+            <h1 className="site-title" title="Machine Learning-Based Adaptive RF–FSO Switching for Satellite Communication">
+              <span className="title-line-1">ML-Based Adaptive</span>
+              <span className="title-line-2">RF–FSO Switching</span>
+              <small>For satellite communication</small>
+            </h1>
+          </div>
           <nav className="pill-nav" aria-label="Page sections">
             {navigation.map(([id, label]) => (
               <button type="button" key={id} className={activeSection === id ? "active" : ""} aria-current={activeSection === id ? "location" : undefined} onClick={() => onNavigate(id)}>
@@ -472,7 +518,7 @@ export function LinkSimulation({
             <SceneErrorBoundary>
               <Suspense fallback={<div className="scene-placeholder" role="status" aria-live="polite">Loading 3D satellite scene…</div>}>
                 <SatelliteScene
-                  selectedLink={selected}
+                  selectedLink={sceneSelected}
                   cloudAttenuationDb={inputs.cloud_attenuation_db}
                   cameraView={cameraView}
                   htmlPortal={scenePortalRef}
@@ -526,7 +572,7 @@ export function LinkSimulation({
                 handlerRef={linkTruthHandlerRef}
                 initialTruth={initialTruth}
                 constellationMode={constellationMode}
-                selected={selected}
+                selected={sceneSelected}
                 onLinkVisibility={reportLinkVisibility}
               />
             </div>
@@ -576,30 +622,65 @@ export function LinkSimulation({
           inert={!sidePanelsVisible}
         >
           <Panel title="Model decision" className={`decision-panel${apiStatus === "offline" ? " stale" : ""}`}>
-            <p className={`decision-sentence ${selected === "RF" ? "rf" : "fso"}`}>
-              <span className="decision-dot" aria-hidden="true" />
-              Selected link: {selected}
+            <p className={`decision-sentence${selected ? ` ${selected === "RF" ? "rf" : "fso"}` : ""}`}>
+              {selected && <span className="decision-dot" aria-hidden="true" />}
+              Selected link: {selected ?? "—"}
             </p>
-            {!prediction && (
-              <p className="decision-summary" role={predictionError ? "alert" : undefined}>
-                {predictionError ?? "Waiting for the prediction response."}
+            {decision.status === "loading" && (
+              <p className="decision-summary" aria-live="polite">
+                {decision.updatedAt === null
+                  ? `Starting the model service… (${coldStartSeconds} s)`
+                  : "Updating…"}
               </p>
             )}
+            {decision.status === "ready" && (
+              <p className="decision-summary" aria-live="polite">
+                Probability RF {rfProbability?.toFixed(1)}%, FSO {fsoProbability?.toFixed(1)}%
+              </p>
+            )}
+            {decision.status === "error" && (
+              <div className="decision-summary" role="alert">
+                <p>The model service isn&apos;t responding. Showing the rule-based estimate.</p>
+                <button type="button" className="button" onClick={onRetryPrediction}>Retry</button>
+              </div>
+            )}
             <p className="decision-summary">
-              Rule check: {theorySelection} (effective FSO SNR {theoryEffectiveFso.toFixed(1)} dB)
+              {decision.status === "error" ? "Rule-based estimate" : "Rule check"}: {theorySelection} (effective FSO SNR {theoryEffectiveFso.toFixed(1)} dB)
             </p>
-            <div className="decision-rows">
+            <div className="decision-rows" style={{ opacity: decision.status === "loading" ? 0.6 : 1 }}>
               {(["RF", "FSO"] as const).map((link) => {
                 const probability = link === "RF" ? rfProbability : fsoProbability;
                 const value = link === "RF" ? inputs.rf_snr_db : inputs.fso_snr_db;
                 const isRf = link === "RF";
                 return (
-                  <div className={`decision-row ${isRf ? "rf" : "fso"}${selected === link ? " selected" : ""}`} key={link}>
+                  <div
+                    className={`decision-row ${isRf ? "rf" : "fso"}${selected === link ? " selected" : ""}`}
+                    key={link}
+                    style={{
+                      padding: "10px 8px",
+                      border: `1px solid ${selected === link ? "var(--border)" : "transparent"}`,
+                      borderRadius: 6,
+                      backgroundColor: selected === link ? "#1c1f21" : "transparent",
+                      transition: "background-color 200ms ease, border-color 200ms ease",
+                    }}
+                  >
                     <div className="decision-row-heading">
                       <strong>{link}</strong>
-                      <span className="decision-percent">{probability === undefined ? "—" : `${probability.toFixed(1)}%`}</span>
+                      <span className="decision-percent" style={{ fontVariantNumeric: "tabular-nums" }}>
+                        <AnimatedPercent value={probability} />
+                      </span>
                     </div>
-                    <div className="decision-track"><span style={{ width: `${Math.min(100, Math.max(0, probability ?? 0))}%` }} /></div>
+                    <div className="decision-track">
+                      <span
+                        style={{
+                          display: "block",
+                          width: `${Math.min(100, Math.max(0, probability ?? 0))}%`,
+                          transition: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                            ? "none"
+                            : "width 400ms ease-out",
+                        }}
+                      />
+                    </div>
                     <p>{isRf ? `RF SNR ${value} dB (your input)` : `FSO SNR ${value} dB · atmospheric loss ${inputs.atmospheric_loss_db} dB · cloud ${inputs.cloud_attenuation_db} dB (your inputs)`}</p>
                   </div>
                 );
