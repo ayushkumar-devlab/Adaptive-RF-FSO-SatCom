@@ -26,13 +26,6 @@ type SceneLinkTruth = {
   inViewCount: number;
 };
 type LinkTruthHandlerRef = MutableRefObject<(truth: SceneLinkTruth) => void>;
-type HandoverEntry = {
-  time: string;
-  from: number;
-  to: number;
-  fromElevation: number;
-  toElevation: number;
-};
 
 type SceneErrorBoundaryProps = { children: ReactNode };
 type SceneErrorBoundaryState = { hasError: boolean };
@@ -76,26 +69,17 @@ const LinkTruthDisplay = memo(function LinkTruthDisplay({
   constellationMode,
   selected,
   onLinkVisibility,
-  clockRef,
-  handoverRequestedRef,
-  onHandover,
 }: {
   handlerRef: LinkTruthHandlerRef;
   initialTruth: SceneLinkTruth;
   constellationMode: boolean;
   selected: string;
   onLinkVisibility: (visible: boolean) => void;
-  clockRef: SimClockRef;
-  handoverRequestedRef: MutableRefObject<boolean>;
-  onHandover: (entry: HandoverEntry) => void;
 }) {
   const [truth, setTruth] = useState(initialTruth);
-  const [handover, setHandover] = useState<HandoverEntry | null>(null);
-  const [servingChanged, setServingChanged] = useState(false);
+  const [handoverText, setHandoverText] = useState<string | null>(null);
   const lastTruthRef = useRef(initialTruth);
   const lastUpdateRef = useRef(0);
-  const toastTimerRef = useRef<number | null>(null);
-  const servingTimerRef = useRef<number | null>(null);
 
   const updateTruth = useCallback((next: SceneLinkTruth) => {
     const displayed = {
@@ -120,123 +104,26 @@ const LinkTruthDisplay = memo(function LinkTruthDisplay({
     lastTruthRef.current = next;
     setTruth(next);
     if (next.visible !== previous.visible) onLinkVisibility(next.visible);
-    const requestedHandover = handoverRequestedRef.current;
-    if ((constellationMode || requestedHandover) && (previous.visible || requestedHandover) && next.visible && next.satelliteId !== previous.satelliteId) {
-      const totalMinutes = Math.floor(clockRef.current.t / 60);
-      const entry: HandoverEntry = {
-        time: `${String(Math.floor(totalMinutes / 60) % 24).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`,
-        from: previous.satelliteId,
-        to: next.satelliteId,
-        fromElevation: Math.round(previous.elevationDeg),
-        toElevation: Math.round(next.elevationDeg),
-      };
-      setHandover(entry);
-      onHandover(entry);
-      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
-      toastTimerRef.current = window.setTimeout(() => setHandover(null), 3_000);
-      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        const label = [...document.querySelectorAll<HTMLElement>(".scene-portal .callout")]
-          .find((element) => element.querySelector(".callout-card")?.textContent?.includes(`SATCOM-${next.satelliteId}`));
-        label?.classList.remove("satellite-pulse");
-        if (label) {
-          void label.offsetWidth;
-          label.classList.add("satellite-pulse");
-          window.setTimeout(() => label.classList.remove("satellite-pulse"), 600);
-        }
-      }
-      if (servingTimerRef.current !== null) window.clearTimeout(servingTimerRef.current);
-      setServingChanged(true);
-      servingTimerRef.current = window.setTimeout(() => setServingChanged(false), 400);
-      handoverRequestedRef.current = false;
+    if (constellationMode && next.satelliteId !== previous.satelliteId) {
+      setHandoverText(`Handover to satellite ${next.satelliteId}`);
+      window.setTimeout(() => setHandoverText(null), 2000);
     }
-  }, [clockRef, constellationMode, handoverRequestedRef, onHandover, onLinkVisibility]);
+  }, [constellationMode, onLinkVisibility]);
 
   useEffect(() => {
     handlerRef.current = updateTruth;
     return () => {
       handlerRef.current = () => undefined;
-      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
-      if (servingTimerRef.current !== null) window.clearTimeout(servingTimerRef.current);
     };
   }, [handlerRef, updateTruth]);
 
-  useEffect(() => {
-    const updateSatelliteLabels = () => {
-      const panels = [
-        document.querySelector<HTMLElement>(".console-left"),
-        document.querySelector<HTMLElement>(".console-right"),
-      ].filter((panel): panel is HTMLElement => panel !== null);
-      const dock = document.querySelector<HTMLElement>(".playback-dock");
-      for (const label of document.querySelectorAll<HTMLElement>(".scene-portal .callout")) {
-        const card = label.querySelector<HTMLElement>(".callout-card");
-        if (!card) continue;
-        const text = card.textContent ?? "";
-        const isSatellite = text.includes("SATCOM-");
-        const isGroundStation = text.includes("Ground station");
-        if (!isSatellite && !isGroundStation) continue;
-        label.classList.toggle("satellite-serving", isSatellite && truth.visible && text.includes(`SATCOM-${truth.satelliteId}`));
-        label.classList.toggle("satellite-in-view", isSatellite && !text.includes(`SATCOM-${truth.satelliteId}`));
-        label.classList.toggle("satellite-below-horizon", isSatellite && text.includes("Below horizon"));
-        label.classList.toggle("ground-station-label", isGroundStation);
-        const cardRect = card.getBoundingClientRect();
-        const anchorRect = label.getBoundingClientRect();
-        const overlaps = (a: DOMRect, b: DOMRect) => a.right > b.left && a.left < b.right
-          && a.bottom > b.top && a.top < b.bottom;
-        const anchorIn = (anchor: DOMRect, area: DOMRect, margin = 0) => anchor.left >= area.left - margin
-          && anchor.left <= area.right + margin && anchor.top >= area.top - margin && anchor.top <= area.bottom + margin;
-        const leftPanel = panels.find((candidate) => candidate.classList.contains("console-left"));
-        const rightPanel = panels.find((candidate) => candidate.classList.contains("console-right"));
-        const leftRect = leftPanel?.getBoundingClientRect();
-        const rightRect = rightPanel?.getBoundingClientRect();
-        const flipRight = Boolean(leftRect && overlaps(cardRect, leftRect))
-          || Boolean(leftRect && label.classList.contains("callout-flip-right") && anchorIn(anchorRect, leftRect, cardRect.width));
-        const flipLeft = Boolean(rightRect && overlaps(cardRect, rightRect))
-          || Boolean(rightRect && label.classList.contains("callout-flip-left") && anchorIn(anchorRect, rightRect, cardRect.width));
-        label.classList.toggle("callout-flip-right", flipRight);
-        label.classList.toggle("callout-flip-left", flipLeft);
-        if (flipRight && leftRect) {
-          label.style.setProperty("--panel-flip-offset", `${Math.max(12, leftRect.right - anchorRect.left + 8)}px`);
-        } else if (flipLeft && rightRect) {
-          label.style.setProperty("--panel-flip-offset", `${Math.max(12, anchorRect.right - rightRect.left + 8)}px`);
-        } else {
-          label.style.removeProperty("--panel-flip-offset");
-        }
-        const dockRect = dock?.getBoundingClientRect();
-        const cardOverlapsDock = Boolean(dockRect && overlaps(cardRect, dockRect));
-        const anchorIsOverDock = Boolean(dockRect && anchorRect.top >= dockRect.top - 24
-          && anchorRect.top <= dockRect.bottom);
-        const flipUp = cardOverlapsDock || (label.classList.contains("callout-flip-up") && anchorIsOverDock);
-        label.classList.toggle("callout-flip-up", flipUp);
-        if (flipUp && dockRect) {
-          label.style.setProperty("--dock-clearance", `${Math.max(12, anchorRect.top - dockRect.top + 8)}px`);
-        } else {
-          label.style.removeProperty("--dock-clearance");
-        }
-      }
-    };
-    updateSatelliteLabels();
-    const timer = window.setInterval(updateSatelliteLabels, 200);
-    return () => window.clearInterval(timer);
-  }, [truth]);
+  const statusText = truth.visible
+    ? constellationMode
+      ? `${handoverText ?? `Link up · satellite ${truth.satelliteId} · elevation ${Math.round(truth.elevationDeg)}° · ${truth.inViewCount} in view · ${selected} selected`}`
+      : `Link up · elevation ${Math.round(truth.elevationDeg)}° · ${selected} selected`
+    : "No link: below 10° elevation";
 
-  const servingId = truth.visible ? `SATCOM-${truth.satelliteId}` : "—";
-  return (
-    <>
-      <div className="compact-status" role="status" aria-live="polite">
-        <span><small>Link</small><strong>{truth.visible ? "Up" : "Down"}</strong></span>
-        <span className={servingChanged ? "serving-changed" : ""}><small>Serving satellite</small><strong>{servingId}</strong></span>
-        <span><small>Elevation</small><strong>{truth.visible ? `${Math.round(truth.elevationDeg)}°` : "—"}</strong></span>
-        <span><small>In view</small><strong>{truth.inViewCount}</strong></span>
-        <span><small>Selected link</small><strong>{selected}</strong></span>
-      </div>
-      {handover && (
-        <div className="handover-toast" role="status">
-          <strong>Handover: SATCOM-{handover.from} to SATCOM-{handover.to}</strong>
-          <span>{handover.fromElevation}° to {handover.toElevation}°</span>
-        </div>
-      )}
-    </>
-  );
+  return <div className="compact-status" role="status" aria-live="polite">{statusText}</div>;
 });
 
 const PlaybackTimeline = memo(function PlaybackTimeline({
@@ -385,8 +272,6 @@ export function LinkSimulation({
   const [sidePanelsHidden, setSidePanelsHidden] = useState(() => !sidePanelsVisible);
   const [howOpen, setHowOpen] = useState(() => window.innerHeight >= 860);
   const [skipToast, setSkipToast] = useState<string | null>(null);
-  const [handoverLog, setHandoverLog] = useState<HandoverEntry[]>([]);
-  const handoverRequestedRef = useRef(false);
   const passSamples = useMemo(() => createPassSamples(), []);
   const coverage = useMemo(() => createCoverageSummary(), []);
   const passes = useMemo(() => findPasses(passSamples, MASK_ELEVATION_DEG), [passSamples]);
@@ -544,7 +429,6 @@ export function LinkSimulation({
   const jumpToPass = () => {
     const upcomingPass = getNextPassTime(clockRef.current.t, passSamples);
     if (upcomingPass === null) return;
-    if (constellationMode) handoverRequestedRef.current = true;
     const timeToPass = upcomingPass - clockRef.current.t;
     const lead = 20;
     if (timeToPass > lead) {
@@ -644,9 +528,6 @@ export function LinkSimulation({
                 constellationMode={constellationMode}
                 selected={selected}
                 onLinkVisibility={reportLinkVisibility}
-                clockRef={clockRef}
-                handoverRequestedRef={handoverRequestedRef}
-                onHandover={(entry) => setHandoverLog((log) => [entry, ...log].slice(0, 5))}
               />
             </div>
             {controlsExpanded && <div id="expanded-controls" className="expanded-controls">
@@ -695,9 +576,14 @@ export function LinkSimulation({
           inert={!sidePanelsVisible}
         >
           <Panel title="Model decision" className={`decision-panel${apiStatus === "offline" ? " stale" : ""}`}>
-            <p className={`decision-sentence ${selected === "RF" ? "rf" : "fso"}`}><span className="decision-dot" aria-hidden="true" />Selected link: {selected}</p>
+            <p className="decision-sentence">The model picks {selected}.</p>
             <div className="decision-metrics">
-              <p className="decision-summary">Rule check: {theorySelection} (effective FSO SNR {theoryEffectiveFso.toFixed(1)} dB)</p>
+              <p className="decision-summary">
+                {prediction && rfProbability !== undefined && fsoProbability !== undefined
+                  ? `${rfProbability.toFixed(1)}% probability for RF · ${fsoProbability.toFixed(1)}% for FSO`
+                  : predictionError ?? "Waiting for the prediction response."}
+              </p>
+              <p className="decision-summary">Theory check: {theorySelection} (FSO effective {theoryEffectiveFso.toFixed(1)} dB)</p>
             </div>
             {(["RF", "FSO"] as const).map((link) => {
               const probability = link === "RF" ? rfProbability : fsoProbability;
@@ -712,11 +598,10 @@ export function LinkSimulation({
                   </div>
                   <div className="decision-track"><span style={{ width: `${Math.min(100, Math.max(0, probability ?? 0))}%` }} /></div>
                   <p>{isRf ? `RF SNR ${value} dB (your input)` : `FSO SNR ${value} dB · atmospheric loss ${inputs.atmospheric_loss_db} dB · cloud ${inputs.cloud_attenuation_db} dB (your inputs)`}</p>
+                  {selected === link && <small>selected by model</small>}
                 </div>
               );
             })}
-            {predictionError && <p className="decision-summary" role="alert">{predictionError}</p>}
-            {!prediction && !predictionError && <p className="decision-summary">Waiting for the prediction response.</p>}
             {apiStatus === "offline" && <p className="stale-label">last result (stale)</p>}
           </Panel>
           <Panel title="How this simulation works" className="how-panel">
@@ -733,17 +618,6 @@ export function LinkSimulation({
               <p>Each speed setting means that many simulated seconds per real second. The geometry is illustrative, not a real satellite link.</p>
               </div>
             </details>
-            <section className="handover-log" aria-label="Handover log">
-              <h3>Handover log</h3>
-              {handoverLog.length === 0
-                ? <p>No handovers yet.</p>
-                : <ol>{handoverLog.map((entry, index) => (
-                  <li key={`${entry.time}-${entry.from}-${entry.to}-${index}`}>
-                    <time>{entry.time}</time>
-                    <span>SATCOM-{entry.from} to SATCOM-{entry.to}</span>
-                  </li>
-                ))}</ol>}
-            </section>
           </Panel>
         </aside>
       </section>

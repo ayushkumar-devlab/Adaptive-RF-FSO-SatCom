@@ -919,9 +919,10 @@ function CameraRig({
   useEffect(() => {
     updateCameraAspect(camera, size.width / Math.max(1, size.height));
     if (camera instanceof THREE.PerspectiveCamera) {
+      const aspect = size.width / Math.max(1, size.height);
       camera.fov = cameraView === "orbit"
         ? THREE.MathUtils.radToDeg(
-            2 * Math.atan((DISPLAY_ORBIT_RADIUS * 1.08) / 8),
+            2 * Math.atan((DISPLAY_ORBIT_RADIUS * 1.08) / (8 * Math.min(1, aspect))),
           )
         : 45;
       camera.updateProjectionMatrix();
@@ -940,7 +941,7 @@ function CameraRig({
 
     if (cameraView === "orbit") {
       const targetY = stageHeight < 560 ? -1.3 : -1.7;
-      controls.setLookAt(0, targetY, 5.2, 0, targetY, 0, false);
+      controls.setLookAt(0, targetY, 5.6, 0, targetY, 0, false);
       return;
     }
 
@@ -1616,7 +1617,7 @@ export default function SatelliteScene({
   return (
     <Canvas
       aria-label="Interactive 3D illustration of Earth, a satellite, and a ground station"
-      camera={{ position: [0, -1.7, 5.2], fov: 45 }}
+      camera={{ position: [0, -1.7, 5.6], fov: 45 }}
       dpr={[1, 1.5]}
       frameloop={pageVisible ? "always" : "never"}
       gl={{ antialias: true, powerPreference: "high-performance" }}
