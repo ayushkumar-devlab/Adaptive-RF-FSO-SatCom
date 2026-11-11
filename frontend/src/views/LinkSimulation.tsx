@@ -576,32 +576,35 @@ export function LinkSimulation({
           inert={!sidePanelsVisible}
         >
           <Panel title="Model decision" className={`decision-panel${apiStatus === "offline" ? " stale" : ""}`}>
-            <p className="decision-sentence">The model picks {selected}.</p>
-            <div className="decision-metrics">
-              <p className="decision-summary">
-                {prediction && rfProbability !== undefined && fsoProbability !== undefined
-                  ? `${rfProbability.toFixed(1)}% probability for RF · ${fsoProbability.toFixed(1)}% for FSO`
-                  : predictionError ?? "Waiting for the prediction response."}
+            <p className={`decision-sentence ${selected === "RF" ? "rf" : "fso"}`}>
+              <span className="decision-dot" aria-hidden="true" />
+              Selected link: {selected}
+            </p>
+            {!prediction && (
+              <p className="decision-summary" role={predictionError ? "alert" : undefined}>
+                {predictionError ?? "Waiting for the prediction response."}
               </p>
-              <p className="decision-summary">Theory check: {theorySelection} (FSO effective {theoryEffectiveFso.toFixed(1)} dB)</p>
-            </div>
-            {(["RF", "FSO"] as const).map((link) => {
-              const probability = link === "RF" ? rfProbability : fsoProbability;
-              const value = link === "RF" ? inputs.rf_snr_db : inputs.fso_snr_db;
-              const isRf = link === "RF";
-              return (
-                <div className={`decision-row ${isRf ? "rf" : "fso"}${selected === link ? " selected" : ""}`} key={link}>
-                  <div className="decision-row-heading">
-                    <span className="decision-dot" aria-hidden="true" />
-                    <strong>{link}</strong>
-                    <span className="decision-percent">{probability === undefined ? "—" : `${probability.toFixed(1)}%`}</span>
+            )}
+            <p className="decision-summary">
+              Rule check: {theorySelection} (effective FSO SNR {theoryEffectiveFso.toFixed(1)} dB)
+            </p>
+            <div className="decision-rows">
+              {(["RF", "FSO"] as const).map((link) => {
+                const probability = link === "RF" ? rfProbability : fsoProbability;
+                const value = link === "RF" ? inputs.rf_snr_db : inputs.fso_snr_db;
+                const isRf = link === "RF";
+                return (
+                  <div className={`decision-row ${isRf ? "rf" : "fso"}${selected === link ? " selected" : ""}`} key={link}>
+                    <div className="decision-row-heading">
+                      <strong>{link}</strong>
+                      <span className="decision-percent">{probability === undefined ? "—" : `${probability.toFixed(1)}%`}</span>
+                    </div>
+                    <div className="decision-track"><span style={{ width: `${Math.min(100, Math.max(0, probability ?? 0))}%` }} /></div>
+                    <p>{isRf ? `RF SNR ${value} dB (your input)` : `FSO SNR ${value} dB · atmospheric loss ${inputs.atmospheric_loss_db} dB · cloud ${inputs.cloud_attenuation_db} dB (your inputs)`}</p>
                   </div>
-                  <div className="decision-track"><span style={{ width: `${Math.min(100, Math.max(0, probability ?? 0))}%` }} /></div>
-                  <p>{isRf ? `RF SNR ${value} dB (your input)` : `FSO SNR ${value} dB · atmospheric loss ${inputs.atmospheric_loss_db} dB · cloud ${inputs.cloud_attenuation_db} dB (your inputs)`}</p>
-                  {selected === link && <small>selected by model</small>}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
             {apiStatus === "offline" && <p className="stale-label">last result (stale)</p>}
           </Panel>
           <Panel title="How this simulation works" className="how-panel">

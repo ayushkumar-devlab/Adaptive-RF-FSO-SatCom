@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ControlPanel } from "./components/ControlPanel";
 import { getInitialSimulationTime } from "./sim/orbit";
-import { health, predict } from "./api";
+import { API_BASE_URL, ApiHttpError, ApiTimeoutError, health, predict } from "./api";
 import { LinkSimulation } from "./views/LinkSimulation";
 import { Method } from "./views/Method";
 import { Overview } from "./views/Overview";
@@ -85,7 +85,16 @@ export default function App() {
         setApiStatus("connected");
       } catch (requestError) {
         if (requestError instanceof Error && requestError.name === "AbortError") return;
-        setPredictionError(requestError instanceof Error ? requestError.message : "The prediction request failed.");
+        console.error("Model prediction failed.", { endpoint: `${API_BASE_URL}/api/predict`, error: requestError });
+        setPredictionError(
+          requestError instanceof ApiTimeoutError
+            ? "The model service took too long to respond. Please retry."
+            : requestError instanceof TypeError
+              ? "The model service isn't responding right now. Please try again in a moment."
+              : requestError instanceof ApiHttpError
+                ? "The model service returned an error. Please try again."
+                : "The model service couldn't complete the request. Please try again.",
+        );
         setApiStatus("offline");
       }
     }, 1000);

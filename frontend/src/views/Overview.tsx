@@ -8,7 +8,7 @@ export function Overview() {
         <Panel title="What was built">
           <p>
             An interactive satellite-link demonstrator pairs orbit geometry with a Radio Frequency (RF) / Free-Space Optical (FSO) model recommendation.
-            Four channel inputs are sent to the existing model endpoint.
+            Four channel inputs help evaluate link performance.
           </p>
         </Panel>
         <Panel title="Accuracy caveat">

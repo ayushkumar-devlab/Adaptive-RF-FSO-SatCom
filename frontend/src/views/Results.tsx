@@ -240,13 +240,13 @@ export function Results({
             : `${API_BASE_URL}/api/${path === "batch" ? "predict-batch" : "predict"}`;
           console.error("Model sweep failed.", { endpoint, inputs: requestInputs, error });
           if (error instanceof ApiTimeoutError) {
-            setSweepError(`Timeout: ${error.message}`);
+            setSweepError("The model service took too long to respond. Please retry.");
           } else if (error instanceof ApiHttpError) {
-            setSweepError(`HTTP status ${error.status} from ${error.url}.`);
+            setSweepError("The model service returned an error. Please try again.");
           } else if (error instanceof TypeError) {
-            setSweepError(`CORS/network failure contacting ${endpoint}. Check the backend URL and allowed frontend origins. (${error.message})`);
+            setSweepError("The model service isn't responding right now. Please try again in a moment.");
           } else {
-            setSweepError(error instanceof Error ? error.message : String(error));
+            setSweepError("The model service couldn't complete the sweep. Please try again.");
           }
         }
         throw error;
@@ -319,7 +319,7 @@ export function Results({
       <div className="results-charts">
         <Panel title="Model sweep" className="chart-card">
           <div className="chart-heading-row">
-            <p>RF SNR input across the slider range; each point is a /api/predict response.</p>
+            <p>Explore how the communication link selection adapts to changing RF signal conditions.</p>
             <button type="button" className="button" onClick={() => void runSweep()} disabled={sweeping}>
               {sweeping
                 ? sweepProgress === null ? "Running…" : `Running… ${sweepProgress}/${sweepRange.length}`
@@ -327,7 +327,7 @@ export function Results({
             </button>
           </div>
           {sweepPhase === "waking" && (
-            <p role="status">Waking up the server… {wakingSeconds} s</p>
+            <p role="status">Starting the model service. This can take up to a minute… {wakingSeconds} s</p>
           )}
           {sweepPhase === "processing" && (
             <p role="status">Processing results…</p>

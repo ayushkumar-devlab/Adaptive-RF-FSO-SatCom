@@ -36,7 +36,7 @@ const stages = [
   {
     number: "6",
     title: "Live dashboard",
-    description: "FastAPI serves the model. The dashboard sends your slider values to it and shows which link it picks.",
+    description: "The dashboard evaluates your slider values and shows which link it recommends.",
   },
 ];
 
@@ -85,17 +85,13 @@ export function Method() {
 
         <Panel title="Model inputs and prediction">
           <p>
-            The model receives four values: RF SNR, FSO SNR, atmospheric loss,
-            and cloud attenuation. The training dataset contains synthetic
-            channel scenarios rather than measurements from a real link.
+            Adjust RF SNR, FSO SNR, atmospheric loss, and cloud attenuation to evaluate communication link performance.
           </p>
           <ul className="compact-list">
             {inputs.map((label) => <li key={label}><span>{label}</span></li>)}
           </ul>
           <p>
-            The dashboard sends those values to the FastAPI{" "}
-            <code>/api/predict</code> endpoint and displays the returned link
-            decision.
+            The system analyses the input conditions and predicts the most suitable communication link: RF or FSO.
           </p>
         </Panel>
 
