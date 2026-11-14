@@ -11,7 +11,7 @@ The project combines BPSK link simulations, RF and FSO link analysis, rule-based
 - Generate synthetic scenarios for machine-learning evaluation.
 - Compare RF-only, FSO-only, rule-based, and Random Forest strategies.
 ## 3. Technologies Used
-- Python 3.10
+- Python 3.11+
 - NumPy
 - Pandas
 - Scikit-learn

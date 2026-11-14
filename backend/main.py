@@ -1,11 +1,14 @@
 
 from pathlib import Path
+from collections import defaultdict, deque
 import os
+import threading
+import time
 
 import joblib
 import pandas as pd
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -35,10 +38,15 @@ FEATURES = bundle["features"]
 # 2. FASTAPI APPLICATION
 # --------------------------------------------------
 
+is_production = os.getenv("ENVIRONMENT", "development").strip().lower() == "production"
+
 app = FastAPI(
     title="SATCOM Adaptive Link API",
     description="RF-FSO link prediction using the existing trained model.",
     version="1.0.0",
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
 )
 
 
@@ -69,7 +77,41 @@ app.add_middleware(
 
 
 # --------------------------------------------------
-# 4. INPUT VALIDATION
+# 4. IN-MEMORY RATE LIMITING
+# --------------------------------------------------
+
+_RATE_LIMIT_WINDOW_SECONDS = 60
+_rate_limit_requests = defaultdict(deque)
+_rate_limit_lock = threading.Lock()
+
+
+def _check_rate_limit(request: Request, limit: int) -> None:
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+
+    with _rate_limit_lock:
+        timestamps = _rate_limit_requests[client_ip]
+        cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+        while timestamps and timestamps[0] <= cutoff:
+            timestamps.popleft()
+
+        if len(timestamps) >= limit:
+            retry_after = max(
+                1,
+                int(timestamps[0] + _RATE_LIMIT_WINDOW_SECONDS - now + 0.999),
+            )
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Please try again shortly.",
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        timestamps.append(now)
+
+
+# --------------------------------------------------
+# 5. INPUT VALIDATION
 # --------------------------------------------------
 
 class ChannelInputs(BaseModel):
@@ -89,7 +131,7 @@ class BatchPredictionRequest(BaseModel):
 
 
 # --------------------------------------------------
-# 5. HEALTH CHECK ENDPOINT
+# 6. HEALTH CHECK ENDPOINT
 # --------------------------------------------------
 
 @app.get("/api/health")
@@ -99,11 +141,13 @@ def health():
 
 
 # --------------------------------------------------
-# 6. RF-FSO PREDICTION ENDPOINT
+# 7. RF-FSO PREDICTION ENDPOINT
 # --------------------------------------------------
 
 @app.post("/api/predict")
-def predict(inputs: ChannelInputs):
+def predict(request: Request, inputs: ChannelInputs):
+
+    _check_rate_limit(request, 60)
 
     # Convert validated inputs into a dictionary.
     values = inputs.model_dump()
@@ -142,9 +186,11 @@ def predict(inputs: ChannelInputs):
 
 
 @app.post("/api/predict-batch")
-def predict_batch(request: BatchPredictionRequest):
+def predict_batch(request: Request, inputs: BatchPredictionRequest):
 
-    values = [item.model_dump() for item in request.items]
+    _check_rate_limit(request, 10)
+
+    values = [item.model_dump() for item in inputs.items]
     if not values:
         return {"results": []}
 
@@ -176,7 +222,7 @@ def predict_batch(request: BatchPredictionRequest):
 
 
 # --------------------------------------------------
-# 7. ROOT ENDPOINT
+# 8. ROOT ENDPOINT
 # --------------------------------------------------
 
 @app.get("/")
