@@ -77,7 +77,6 @@ const LinkTruthDisplay = memo(function LinkTruthDisplay({
   onLinkVisibility: (visible: boolean) => void;
 }) {
   const [truth, setTruth] = useState(initialTruth);
-  const [handoverText, setHandoverText] = useState<string | null>(null);
   const lastTruthRef = useRef(initialTruth);
   const lastUpdateRef = useRef(0);
 
@@ -104,10 +103,6 @@ const LinkTruthDisplay = memo(function LinkTruthDisplay({
     lastTruthRef.current = next;
     setTruth(next);
     if (next.visible !== previous.visible) onLinkVisibility(next.visible);
-    if (constellationMode && next.satelliteId !== previous.satelliteId) {
-      setHandoverText(`Handover to satellite ${next.satelliteId}`);
-      window.setTimeout(() => setHandoverText(null), 2000);
-    }
   }, [constellationMode, onLinkVisibility]);
 
   useEffect(() => {
@@ -119,11 +114,27 @@ const LinkTruthDisplay = memo(function LinkTruthDisplay({
 
   const statusText = truth.visible
     ? constellationMode
-      ? `${handoverText ?? `Link up · satellite ${truth.satelliteId} · elevation ${Math.round(truth.elevationDeg)}° · ${truth.inViewCount} in view · ${selected} selected`}`
+      ? `Link up · satellite ${truth.satelliteId} · elevation ${Math.round(truth.elevationDeg)}° · ${truth.inViewCount} in view · ${selected} selected`
       : `Link up · elevation ${Math.round(truth.elevationDeg)}° · ${selected} selected`
     : "No link: below 10° elevation";
+  const inViewDots = Math.max(0, Math.min(144, truth.inViewCount));
 
-  return <div className="compact-status" role="status" aria-live="polite">{statusText}</div>;
+  return (
+    <div className="compact-status" role="status" aria-live="polite">
+      <span>{statusText}</span>
+      {constellationMode && (
+        <span className="in-view-strip" aria-label={`${inViewDots} satellites above the mask`}>
+          {Array.from({ length: inViewDots }, (_, index) => (
+            <span
+              key={index}
+              className={`in-view-dot${index === 0 && truth.visible ? " serving" : ""}`}
+              aria-hidden="true"
+            />
+          ))}
+        </span>
+      )}
+    </div>
+  );
 });
 
 const PlaybackTimeline = memo(function PlaybackTimeline({
@@ -586,10 +597,9 @@ export function LinkSimulation({
                 <strong>View</strong>
                 <div className="dock-views" role="group" aria-label="Camera views">
                   {([
-                    ["orbit", "Orbit"],
-                    ["ground", "Ground station"],
-                    ["follow", "Follow satellite"],
-                    ["overview", "Overview"],
+                    ["orbit", "Earth fixed"],
+                    ["follow", "Follow serving satellite"],
+                    ["ground", "Station view"],
                   ] as const).map(([view, label]) => (
                     <button type="button" key={view} aria-label={label} aria-pressed={cameraView === view} className={cameraView === view ? "active" : ""} onClick={() => setCameraView(view)}>{label}</button>
                   ))}

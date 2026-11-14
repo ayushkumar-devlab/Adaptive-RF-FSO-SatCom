@@ -424,6 +424,9 @@ th, td { padding: 14px; border-bottom: 1px solid var(--border); text-align: left
 }
 .controls-toggle { color: var(--muted); }
 .compact-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
   color: var(--text);
@@ -432,6 +435,10 @@ th, td { padding: 14px; border-bottom: 1px solid var(--border); text-align: left
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.compact-status > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.in-view-strip { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; max-width: 42%; overflow: hidden; }
+.in-view-dot { width: 5px; height: 5px; flex: 0 0 5px; border: 1px solid var(--muted); border-radius: 50%; opacity: .7; }
+.in-view-dot.serving { width: 8px; height: 8px; flex-basis: 8px; background: var(--rf); border-color: var(--rf); opacity: 1; }
 .expanded-controls {
   position: absolute;
   right: 0;
