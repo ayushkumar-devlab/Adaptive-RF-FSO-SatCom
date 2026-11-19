@@ -224,7 +224,7 @@ body[data-stage="reading"] .scene-canvas-layer canvas { opacity: .25; pointer-ev
 .scenario-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .scenario-btn:hover { color: var(--text); }
 .scenario-btn.scenario-selected, .scenario-btn.scenario-selected:hover { color: var(--text); background: var(--surface-strong); border-bottom-color: #E8D9B0; }
-.scenario-hint { max-width: 100%; margin: 10px 0 0; color: rgba(255, 255, 255, .85); font-size: 13px; line-height: 1.5; }
+.scenario-hint { max-width: 100%; margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; hyphens: auto; overflow-wrap: anywhere; }
 .controls-panel { padding-bottom: 24px; }
 .controls-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; }
 .control-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; font-size: 12px; }
@@ -1057,16 +1057,6 @@ th, td { padding: 14px; border-bottom: 1px solid var(--border); text-align: left
 
 .scenario-actions .scenario-btn + .scenario-btn {
   border-left: 1px solid var(--border);
-}
-
-.scenario-hint {
-  width: calc(100% + 40px);
-  max-width: none;
-  margin-left: -20px;
-  text-align: left;
-  hyphens: auto;
-  overflow-wrap: break-word;
-  line-height: 1.5;
 }
 
 .decision-panel .decision-sentence {
