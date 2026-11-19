@@ -224,7 +224,7 @@ body[data-stage="reading"] .scene-canvas-layer canvas { opacity: .25; pointer-ev
 .scenario-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .scenario-btn:hover { color: var(--text); }
 .scenario-btn.scenario-selected, .scenario-btn.scenario-selected:hover { color: var(--text); background: var(--surface-strong); border-bottom-color: #E8D9B0; }
-.scenario-hint { max-width: 100%; margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; hyphens: auto; overflow-wrap: anywhere; }
+.scenario-hint { max-width: 100%; margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; text-align: justify; text-align-last: left; hyphens: auto; overflow-wrap: anywhere; }
 .controls-panel { padding-bottom: 24px; }
 .controls-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; }
 .control-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; font-size: 12px; }
@@ -1448,7 +1448,7 @@ th, td { padding: 14px; border-bottom: 1px solid var(--border); text-align: left
   display: block;
   margin-top: 6px;
   color: #8A8F94;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 400;
   line-height: 1.2;
 }
