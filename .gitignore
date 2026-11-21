@@ -13,3 +13,7 @@ dist/
 # Environment secrets
 .env
 .env.*
+*.pem
+*.key
+credentials.json
+!.env.example
